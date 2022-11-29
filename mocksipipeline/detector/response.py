@@ -14,6 +14,8 @@ from sunpy.io.special import read_genx
 
 from synthesizAR.instruments.util import extend_celestial_wcs
 
+from mocksipipeline.detector.filter import ThinFilmFilter
+
 __all__ = [
     'Channel',
     'SpectrogramChannel',
@@ -80,18 +82,40 @@ def convolve_with_response(cube, channel, include_gain=True):
 
 
 class Channel:
+    """
+    Access properties of MOXSI channels and compute wavelength response functions
 
-    def __init__(self, name, instrument_file=None, filter=None):
-        # Switch this to accept a filter type or an order and then construct name
-        # based on that.
-        self._name = name
+    Parameters
+    ----------
+    name: `str`
+    filter: `~mocksipipeline.detector.filter.ThinFilmFilter` or list
+        If multiple filters are specified, the the filter transmission is computed as
+        the product of the transmissivities. 
+    instrument_file
+    """
+
+    def __init__(self, name, filters, instrument_file=None,):
+        self.name = name
+        self.filters = filters
         if instrument_file is None:
             instrument_file = get_pkg_data_filename('data/MOXSI_effarea.genx', package='mocksipipeline.detector')
         self._instrument_data = self._get_instrument_data(instrument_file)
-        self.filter = filter
         
     def _get_instrument_data(self, instrument_file):
         return read_genx(instrument_file)
+    
+    @property
+    def filters(self):
+        return self._filters
+    
+    @filters.setter
+    def filters(self, value):
+        if isinstance(value, ThinFilmFilter):
+            self._filters = [value]
+        elif isinstance(value, list):
+            self._filters = value
+        else:
+            raise ValueError(f'{type(value)} is not a supported type for filters.')
 
     @property
     @u.quantity_input
@@ -106,17 +130,31 @@ class Channel:
     @property
     def detector_shape(self):
         return (750, 2000)
-        
+    
     @property
-    def _data(self):
+    def _index_mapping(self):
         index_mapping = {}
         for i,c in enumerate(self._instrument_data['SAVEGEN0']):
             index_mapping[c['CHANNEL']] = i
-        return MetaDict(self._instrument_data['SAVEGEN0'][index_mapping[self._name]])
+        return index_mapping
+    
+    @property
+    def _data_index(self):
+        # NOTE: this is hardcoded because none of the properties, except the
+        # transmission, vary across the channel for the pinhole images
+        return self._index_mapping['Be_thin']
+        
+    @property
+    def _data(self):
+        return MetaDict(self._instrument_data['SAVEGEN0'][self._data_index])
         
     @property
     def name(self):
         return self._name
+    
+    @name.setter
+    def name(self, value):
+        self._name = value
         
     @property
     @u.quantity_input
@@ -136,10 +174,10 @@ class Channel:
     @property
     @u.quantity_input
     def filter_transmission(self) -> u.dimensionless_unscaled:
-        if self.filter is None:
-            return u.Quantity(self._data['filter'])
-        else:
-            return self.filter.transmissivity(self.energy)
+        ft = u.Quantity(np.ones(self.energy.shape))
+        for f in self.filters:
+            ft *= f.transmissivity(self.energy)
+        return ft
         
     @property
     @u.quantity_input
@@ -179,10 +217,13 @@ class Channel:
         return 0
     
     @property
+    def camera_gain(self) -> u.Unit('ct / electron'):
+        # TODO: double check the units on this
+        return u.Quantity(1.0, 'ct / electron')
+    
+    @property
     @u.quantity_input
     def gain(self) -> u.ct / u.photon:
-        # TODO: double check the units on this
-        camera_gain = u.Quantity(self._data['gain'], 'ct / electron')
         # This is approximately the average energy to free an electron
         # in silicon
         energy_per_electron = 3.65 * u.Unit('eV / electron')
@@ -191,7 +232,7 @@ class Channel:
         # Cannot discharge less than one electron per photon
         discharge_floor = 1 * u.Unit('electron / photon')
         electron_per_photon[electron_per_photon<discharge_floor] = discharge_floor
-        return electron_per_photon * camera_gain
+        return electron_per_photon * self.camera_gain
 
     @property
     def wavelength_response(self) -> u.Unit('cm^2 ct / photon'):
@@ -200,11 +241,15 @@ class Channel:
 
 class SpectrogramChannel(Channel):
     
-    def __init__(self, order, **kwargs):
+    def __init__(self, order, filter, **kwargs):
         self._spectral_order = order
         name = f'MOXSI_S{int(np.fabs(order))}'
-        super().__init__(name, **kwargs)
+        super().__init__(name, filter, **kwargs)
 
     @property
     def spectral_order(self):
         return self._spectral_order
+    
+    @property
+    def _data_index(self):
+        return self._index_mapping[self.name]

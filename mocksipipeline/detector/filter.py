@@ -11,47 +11,48 @@ class ThinFilmFilter:
     A class representing a thin film filter for modeling instrument responses.
 
     Parameters
-            *elements*: str or sequence of str
-                Contains all the constituent elements (symbols)
+    ----------
+    elements: `str` or `list`
+        Contains all the constituent elements (symbols). If `list`, should
+        be `list` of `str`
+    quantities: `list`, optional
+        Coefficients in the chemical formula. If None, the coefficients
+        are all equal to 1.
+    thickness: `~astropy.units.Quantity`, optional
+        Material thickness
+    density: `~astropy.units.Quantity`, optional
+        density of the filter. If None, the density is looked up using the chemical formula
+    xrt_table: `str`, optional
+        At the time of instantiation the tabulated scattering factors of
+        each element are read and then interpolated at the requested :math:`q`
+        value and energy. ``xrt_table`` can be 'Henke'
+        :math:`(10 \mathrm{eV} < E < 30 \mathrm{keV})` [Henke]_,
+        'Chantler' :math:`(11 \mathrm{eV} < E < 405 \mathrm{keV})` [Chantler]_,
+        or 'BrCo' :math:`(30 \mathrm{eV} < E < 509 \mathrm{keV})` [BrCo]_.
 
-            *quantities*: None or sequence of floats of length of *elements*
-                Coefficients in the chemical formula. If None, the coefficients
-                are all equal to 1.
+    The tables of f2 factors consider only photoelectric
+    cross-sections. The tabulation by Chantler can optionally have
+    *total* absorption cross-sections. This option is enabled by
+    ``table = 'Chantler total'``.
 
-            *thickness*: u.Quantity specifying material thickness
+    .. [Henke] http://henke.lbl.gov/optical_constants/asf.html
+        B.L. Henke, E.M. Gullikson, and J.C. Davis, *X-ray interactions:
+        photoabsorption, scattering, transmission, and reflection at
+        E=50-30000 eV, Z=1-92*, Atomic Data and Nuclear Data Tables
+        **54** (no.2) (1993) 181-342.
 
-            *density*: density of the filter. If None, the density is looked up using the chemical formula
+    .. [Chantler] http://physics.nist.gov/PhysRefData/FFast/Text/cover.html
+        http://physics.nist.gov/PhysRefData/FFast/html/form.html
+        C. T. Chantler, *Theoretical Form Factor, Attenuation, and
+        Scattering Tabulation for Z = 1 - 92 from E = 1 - 10 eV to E = 0.4 -
+        1.0 MeV*, J. Phys. Chem. Ref. Data **24** (1995) 71-643.
 
-            *xrt_table*: str
-            At the time of instantiation the tabulated scattering factors of
-            each element are read and then interpolated at the requested **q**
-            value and energy. *table* can be 'Henke' (10 eV < *E* < 30 keV)
-            [Henke]_, 'Chantler' (11 eV < *E* < 405 keV) [Chantler]_ or 'BrCo'
-            (30 eV < *E* < 509 keV) [BrCo]_.
-
-            The tables of f2 factors consider only photoelectric
-            cross-sections. The tabulation by Chantler can optionally have
-            *total* absorption cross-sections. This option is enabled by
-            *table* = 'Chantler total'.
-
-        .. [Henke] http://henke.lbl.gov/optical_constants/asf.html
-           B.L. Henke, E.M. Gullikson, and J.C. Davis, *X-ray interactions:
-           photoabsorption, scattering, transmission, and reflection at
-           E=50-30000 eV, Z=1-92*, Atomic Data and Nuclear Data Tables
-           **54** (no.2) (1993) 181-342.
-
-        .. [Chantler] http://physics.nist.gov/PhysRefData/FFast/Text/cover.html
-           http://physics.nist.gov/PhysRefData/FFast/html/form.html
-           C. T. Chantler, *Theoretical Form Factor, Attenuation, and
-           Scattering Tabulation for Z = 1 - 92 from E = 1 - 10 eV to E = 0.4 -
-           1.0 MeV*, J. Phys. Chem. Ref. Data **24** (1995) 71-643.
-
-        .. [BrCo] http://www.bmsc.washington.edu/scatter/periodic-table.html
-           ftp://ftpa.aps.anl.gov/pub/cross-section_codes/
-           S. Brennan and P.L. Cowan, *A suite of programs for calculating
-           x-ray absorption, reflection and diffraction performance for a
-           variety of materials at arbitrary wavelengths*, Rev. Sci. Instrum.
-           **63** (1992) 850-853.
+    .. [BrCo] http://www.bmsc.washington.edu/scatter/periodic-table.html
+        ftp://ftpa.aps.anl.gov/pub/cross-section_codes/
+        S. Brennan and P.L. Cowan, *A suite of programs for calculating
+        x-ray absorption, reflection and diffraction performance for a
+        variety of materials at arbitrary wavelengths*, Rev. Sci. Instrum.
+        **63** (1992) 850-853.
     """
     elements: str = None
     quantities: float = None
