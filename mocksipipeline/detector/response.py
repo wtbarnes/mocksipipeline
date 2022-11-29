@@ -6,6 +6,7 @@ import copy
 import numpy as np
 import astropy.units as u
 import astropy.constants as const
+from astropy.utils.data import get_pkg_data_filename
 from ndcube import NDCube
 from scipy.interpolate import interp1d
 from sunpy.util import MetaDict
@@ -80,11 +81,14 @@ def convolve_with_response(cube, channel, include_gain=True):
 
 class Channel:
 
-    def __init__(self, name, instrument_file):
+    def __init__(self, name, instrument_file=None, filter=None):
         # Switch this to accept a filter type or an order and then construct name
         # based on that.
         self._name = name
+        if instrument_file is None:
+            instrument_file = get_pkg_data_filename('data/MOXSI_effarea.genx', package='mocksipipeline.detector')
         self._instrument_data = self._get_instrument_data(instrument_file)
+        self.filter = filter
         
     def _get_instrument_data(self, instrument_file):
         return read_genx(instrument_file)
@@ -118,6 +122,11 @@ class Channel:
     @u.quantity_input
     def wavelength(self) -> u.angstrom:
         return u.Quantity(self._data['wave'], 'angstrom')
+    
+    @property
+    @u.quantity_input
+    def energy(self) -> u.keV:
+        return const.h * const.c / self.wavelength
         
     @property
     @u.quantity_input
@@ -127,7 +136,10 @@ class Channel:
     @property
     @u.quantity_input
     def filter_transmission(self) -> u.dimensionless_unscaled:
-        return u.Quantity(self._data['filter'])
+        if self.filter is None:
+            return u.Quantity(self._data['filter'])
+        else:
+            return self.filter.transmissivity(self.energy)
         
     @property
     @u.quantity_input
@@ -188,10 +200,10 @@ class Channel:
 
 class SpectrogramChannel(Channel):
     
-    def __init__(self, order, instrument_file):
+    def __init__(self, order, **kwargs):
         self._spectral_order = order
         name = f'MOXSI_S{int(np.fabs(order))}'
-        super().__init__(name, instrument_file)
+        super().__init__(name, **kwargs)
 
     @property
     def spectral_order(self):
