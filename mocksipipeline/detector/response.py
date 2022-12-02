@@ -253,17 +253,6 @@ class Channel:
     @u.quantity_input
     def spectral_resolution(self) -> u.Unit('Angstrom / pix'):
         return 55 * u.milliangstrom / u.pix
-
-    @property
-    def spectral_order(self):
-        return self._spectral_order
-
-    @spectral_order.setter
-    def spectral_order(self, value):
-        allowed_spectral_orders = [-3, -1, 0, 1, 3]
-        if value not in allowed_spectral_orders:
-            raise ValueError(f'{value} is not an allowed spectral order.')
-        self._spectral_order = value
     
     @property
     @u.quantity_input
@@ -326,6 +315,9 @@ class SpectrogramChannel(Channel):
 
     @spectral_order.setter
     def spectral_order(self, value):
+        allowed_spectral_orders = [-3, -1, 0, 1, 3]
+        if value not in allowed_spectral_orders:
+            raise ValueError(f'{value} is not an allowed spectral order.')
         self._spectral_order = value
 
     @property
