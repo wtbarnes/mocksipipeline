@@ -95,13 +95,14 @@ class Channel:
     instrument_file
     """
 
-    def __init__(self, name, filters, instrument_file=None,):
+    def __init__(self, name, filters, instrument_file=None, **kwargs):
         self.spectral_order = 0
         self.name = name
         self.filters = filters
         if instrument_file is None:
             instrument_file = get_pkg_data_filename('data/MOXSI_effarea.genx', package='mocksipipeline.detector')
         self._instrument_data = self._get_instrument_data(instrument_file)
+        self.full_detector = kwargs.pop('full_detector', True)
         
     def _get_instrument_data(self, instrument_file):
         return read_genx(instrument_file)
@@ -141,7 +142,10 @@ class Channel:
         # NOTE: this is the full detector, including both the filtergrams and
         # the dispersed image
         # NOTE: the order here is (number of rows, number of columns)
-        return (1500, 2000)
+        if self.full_detector:
+            return (1500, 2000)
+        else:
+            return (750, 2000)
 
     @property
     def _reference_pixel_lookup(self):
@@ -155,7 +159,9 @@ class Channel:
         p_x = margin + (window + 1)/2
         # NOTE: this is the y coordinate of the reference pixel of all of the
         # filtergram images
-        p_y = (self.detector_shape[0]/2 + 1)/2 + self.detector_shape[0]/2
+        p_y = (self.detector_shape[0]/2 + 1)/2 
+        if self.full_detector:
+            p_y += self.detector_shape[0]/2
         # NOTE: the order here is Cartesian, not (row, column)
         # NOTE: this is 1-indexed
         return {
@@ -312,9 +318,10 @@ class SpectrogramChannel(Channel):
     @property
     def _reference_pixel_lookup(self):
         lookup = super()._reference_pixel_lookup
-        lookup['dispersed_image'] = ((self.detector_shape[1] + 1)/2,
-                                     (self.detector_shape[0]/2 + 1)/2, 
-                                     1)*u.pix
+        n_y = self.detector_shape[0]
+        if self.full_detector:
+            n_y /= 2
+        lookup['dispersed_image'] = ((self.detector_shape[1] + 1)/2, (n_y + 1)/2, 1)*u.pix
         return lookup
 
     @property
