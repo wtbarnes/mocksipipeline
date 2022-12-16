@@ -4,23 +4,28 @@ Skeleton for DEM Models
 import parse
 import numpy as np
 from scipy.interpolate import interp1d
+from astropy.utils.data import get_pkg_data_filename
 import astropy.units as u
 import astropy.constants as const
 import aiapy.response
 import astropy.time
+import ndcube
 import xrtpy
 
 from sunkit_dem import Model
 
-from .dem_models import *
+from .dem_models import *  # this registers the relevant models
 
 
 class DemModel:
 
-    def __init__(self, temperature_bin_edges, collection=None, spectra=None):
+    def __init__(self, temperature_bin_edges, collection=None, spectral_table=None, dem_model='hk12',
+                 include_cross_calibration=True):
         self.temperature_bin_edges = temperature_bin_edges
         self.collection = collection
-        self.spectra = spectra
+        self.spectral_table = spectral_table
+        self.dem_model = dem_model
+        self.include_cross_calibration = include_cross_calibration
 
     @property
     def temperature_bin_centers(self):
@@ -29,6 +34,42 @@ class DemModel:
         # Or do we integrate everything?
         logt = np.log10(self.temperature_bin_edges.to_value('K'))
         return 10**((logt[1:] + logt[:-1])/2) * u.K
+
+    @property
+    def spectral_table(self):
+        return self._spectral_table
+
+    @spectral_table.setter
+    def spectral_table(self, value):
+        if isinstance(value, ndcube.NDCube):
+            self._spectral_table = value
+        else:
+            from synthesizAR.atomic.idl import read_spectral_table
+            if value is None:
+                value = get_pkg_data_filename('data/chianti-spectrum.asdf',
+                                              package='mocksipipeline.physics.spectral')
+            self._spectral_table = read_spectral_table(value)
+
+    def get_cross_calibration_factor(self, key):
+        """
+        Factor to multiply XRT response functions by 
+
+        This is needed to resolve excess emission in XRT relative to other instruments.
+        Per discussions with P.S. Athiray, best to use 1.5 for Be channels and 2.5 for
+        all other channels.Also see the following papers for a more full discussion of
+        these cross-calibration factors:
+
+        - Schmelz et al. (2015) https://doi.org/10.1088/0004-637X/806/2/232
+        - Schmelz et al. (2016) https://iopscience.iop.org/article/10.3847/1538-4357/833/2/182
+        - Wright et al. (2017) https://iopscience.iop.org/article/10.3847/1538-4357/aa7a59
+        - Athiray et al. (2020) https://doi.org/10.3847/1538-4357/ab7200 
+        """
+        if not self.include_cross_calibration:
+            return 1
+        if 'Be' in key:
+            return 1.5
+        else:
+            return 2.5
 
     @property
     def response_kernels(self):
@@ -52,7 +93,10 @@ class DemModel:
                 # zero contamination. The current implementation of the contamination data in xrtpy throws an 
                 # exception for dates outside of the range of the contamination data and this data does not extend
                 # over the entire mission.
-                date = astropy.time.Time('2006-09-22T22:00:00')
+                # NOTE: This date is being chosen because there is a serious bug in xrtpy that results in this being
+                # the only date that does not return all NaN values for the effective area. Until that bug is resolved,
+                # this date must be hardcoded to exactly this value. See https://github.com/HinodeXRT/xrtpy/issues/97.
+                date = astropy.time.Time("2006-09-22T22:45:45")
                 trf = xrtpy.response.TemperatureResponseFundamental(_key, date)
                 ea = trf.effective_area()
                 gain = const.c * const.h / trf.channel_wavelength / trf.ev_per_electron / trf.ccd_gain_right
@@ -61,24 +105,41 @@ class DemModel:
                 # for count. This is currently the unit that we use in sunpy in place of DN.
                 gain = gain * u.count / u.DN
                 response = ea * gain * trf.solid_angle_per_pixel
+                response *= self.get_cross_calibration_factor(key)
                 # NOTE: This is somewhat confusingly in units of ph Angstroms
-                wavelength = trf.channel_wavelength.to_value('ph Angstrom') * u.angstrom         
+                wavelength = trf.channel_wavelength.to_value('ph Angstrom') * u.angstrom
             else:
                 raise KeyError(f'Unrecognized key {key}. Should be an AIA channel or XRT filter wheel combination.')
-            T, tresp = compute_temperature_response(self.spectra, wavelength, response, return_temperature=True)
+            T, tresp = compute_temperature_response(self.spectral_table, wavelength, response, return_temperature=True)
             kernels[key] = np.interp(self.temperature_bin_centers, T, tresp)
         
         return kernels
 
+    @property
+    def dem_settings(self):
+        """
+        Keyword arguments used for running the DEM inversion.
+        These will change depending on the kind of model being run.
+        """
+        return {
+            # NOTE: some experimentation seems to show that this set of parameters
+            # yields reasonably smooth solutions.
+            'hk12': {
+                'alpha': 2.0,
+                'increase_alpha': 1.5,
+                'max_iterations': 50,  
+            }
+        }
 
     def run(self):
         # Run the DEM model and return a DEM data cube with dimensions space, space, temperature
-        reg_model = Model(
+        dem_model = Model(
             self.collection,
             self.response_kernels,
             self.temperature_bin_edges,
-            model='hk12',
+            model=self.dem_model,
         )
+        return dem_model.fit(**self.dem_settings[self.dem_model])
 
 
 def compute_temperature_response(spectra,

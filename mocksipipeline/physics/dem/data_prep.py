@@ -203,6 +203,11 @@ class DataQuery(DataPrep):
     def download_data(self, query):
         path = os.path.join(self.data_directory, '{instrument}')
         files = Fido.fetch(query, path=path, **self.fetch_kwargs)
+        # This will try again if there are errors
+        Fido.fetch(files)
+        # If there are still errors, 
+        if files.errors:
+            logger.error(files.errors)
         return files
 
     def get_data(self, obstime):

@@ -4,12 +4,10 @@ DEM models and utilities
 import astropy.units as u
 import numpy as np
 from sunkit_dem import GenericModel
+from demregpy import dn2dem
 
-from .dem_algorithms import simple_reg_dem, sparse_em_init, sparse_em_solve, dn2dem_pos
-try:
-    from .dem_algorithms_fast import simple_reg_dem_gpu, simple_reg_dem_numba, simple_reg_dem_jax
-except ImportError:
-    pass
+from .dem_algorithms import simple_reg_dem, sparse_em_init, sparse_em_solve
+
 
 __all__ = ['HK12Model', 'PlowmanModel', 'CheungModel']
 
@@ -27,43 +25,14 @@ class PlowmanModel(GenericModel):
         exp_times = np.array([self.data[k].meta['exptime'] for k in self._keys])
 
         # Solve
-        method = kwargs.pop('method', None)
-        if method == 'gpu':
-            dem, chi2 = simple_reg_dem_gpu(
-                data_array,
-                uncertainty_array,
-                exp_times,
-                logt,
-                tresp_array,
-                **kwargs
-            )
-        elif method == 'numba':
-            dem, chi2 = simple_reg_dem_numba(
-                data_array,
-                uncertainty_array,
-                exp_times,
-                logt,
-                tresp_array,
-                **kwargs
-            )
-        elif method == 'jax':
-            dem, chi2 = simple_reg_dem_jax(
-                data_array,
-                uncertainty_array,
-                exp_times,
-                logt,
-                tresp_array,
-                **kwargs
-            )
-        else:
-            dem, chi2 = simple_reg_dem(
-                data_array,
-                uncertainty_array,
-                exp_times,
-                logt,
-                tresp_array,
-                **kwargs
-            )
+        dem, chi2 = simple_reg_dem(
+            data_array,
+            uncertainty_array,
+            exp_times,
+            logt,
+            tresp_array,
+            **kwargs
+        )
 
         # Reshape outputs
         data_units = self.data_matrix.unit / exp_unit
@@ -127,9 +96,9 @@ class CheungModel(GenericModel):
 
 class HK12Model(GenericModel):
 
-    def _model(self, alpha=1.0, increase_alpha=1.5, max_iterations=10, guess=None, use_em_loci=False, use_dask=False):
+    def _model(self, alpha=1.0, increase_alpha=1.5, max_iterations=10, guess=None, use_em_loci=False):
         errors = np.array([self.data[k].uncertainty.array.squeeze() for k in self._keys]).T
-        dem, edem, elogt, chisq, dn_reg = dn2dem_pos(
+        dem, edem, elogt, chisq, dn_reg = dn2dem(
             self.data_matrix.value.T,
             errors,
             self.kernel_matrix.value.T,
@@ -140,7 +109,6 @@ class HK12Model(GenericModel):
             rgt_fact=increase_alpha,
             dem_norm0=guess,
             gloci=use_em_loci,
-            use_dask=use_dask,
         )
         dem_unit = self.data_matrix.unit / self.kernel_matrix.unit / self.temperature_bin_edges.unit
         uncertainty = edem.T * dem_unit
