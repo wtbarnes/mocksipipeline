@@ -1,10 +1,10 @@
 """
 Module for modeling detector effects
 """
-__all__ = ['Detector']
+__all__ = ['DetectorModel']
 
 
-class Detector:
+class DetectorModel:
 
     def __init__(self):
         ...

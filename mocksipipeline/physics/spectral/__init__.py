@@ -5,7 +5,6 @@ import ndcube
 import numpy as np
 import astropy.units as u
 from astropy.utils.data import get_pkg_data_filename
-from synthesizAR.atomic.idl import read_spectral_table, compute_spectral_table
 
 __all__ = ['SpectralModel']
 
@@ -13,24 +12,41 @@ __all__ = ['SpectralModel']
 class SpectralModel:
 
     def __init__(self, spectral_table=None, **kwargs):
-        if isinstance(spectral_table, ndcube.NDCube):
-            self.spectral_table = spectral_table
+        self.spectral_table = spectral_table
+
+    @property
+    def spectral_table(self):
+        return self._spectral_table
+
+    @spectral_table.setter
+    def spectral_table(self, value):
+        if isinstance(value, ndcube.NDCube):
+            self._spectral_table = value
         else:
-            if spectral_table is None:
-                spectral_table = get_pkg_data_filename('data/chianti-spectrum.asdf',
-                                                       package='mocksipipeline.physics.spectral')
-            self.spectral_table = read_spectral_table(spectral_table)
+            from synthesizAR.atomic.idl import read_spectral_table
+            if value is None:
+                value = get_pkg_data_filename('data/chianti-spectrum.asdf',
+                                              package='mocksipipeline.physics.spectral')
+            self._spectral_table = read_spectral_table(value)
 
-    def run(self, dem_cube):
-        # This should take in a DEM cube and multiply it with a spectral
-        # table to produce a spectral cube
-        ...
-
+    def run(self, dem_cube, celestial_wcs,):
+        # TODO: figure out how to get the celestial WCS from the DEM cube, even if our dem cube has a gwcs
+        # We can stop passing this in separately if we can figure out a sensible way
+        # to get this out of our DEM cube. This is not currently possible due to the
+        # fact that our DEM WCS is a gwcs.
+        from synthesizAR.instruments import InstrumentDEM
+        return InstrumentDEM.calculate_intensity(
+            dem_cube,
+            self.spectral_table,
+            dict(celestial_wcs.to_header())
+        )
+        
     @staticmethod
     def build_spectral_table(**kwargs):
         """
         Build the spectral table with some sensible defaults for MOXSI
         """
+        from synthesizAR.atomic.idl import compute_spectral_table
         temperature = kwargs.pop('temperature', 10**np.arange(5.5, 7.6, 0.1)*u.K)
         density = kwargs.pop('density', None)
         if density is None:

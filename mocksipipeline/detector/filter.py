@@ -4,6 +4,8 @@ from xrt.backends.raycing.materials import Material
 import dataclasses
 import astropy.units as u
 
+__all__ = ['ThinFilmFilter',]
+
 
 @dataclasses.dataclass
 class ThinFilmFilter:
