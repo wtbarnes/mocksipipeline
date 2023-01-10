@@ -5,9 +5,9 @@ import astropy.units as u
 from astropy.wcs.utils import wcs_to_celestial_frame
 from overlappy.reproject import reproject_to_overlappogram
 
-from mocksipipeline.detector.response import convolve_with_response
+from mocksipipeline.detector.response import convolve_with_response, SpectrogramChannel
 
-__all__ = ['DetectorComponent']
+__all__ = ['DetectorComponent', 'DispersedComponent', 'FiltergramComponent']
 
 
 class DetectorComponent:
@@ -18,8 +18,11 @@ class DetectorComponent:
         self.roll_angle = roll_angle
         self.dispersion_angle = dispersion_angle
 
-    def compute(self, spectral_cube, include_gain=True):
-        instr_cube = convolve_with_response(spectral_cube, self.channel, include_gain=include_gain)
+    def compute(self, spectral_cube, include_gain=False, electrons=True):
+        instr_cube = convolve_with_response(spectral_cube, 
+                                            self.channel,
+                                            include_gain=include_gain,
+                                            electrons=electrons)
         return reproject_to_overlappogram(
             instr_cube,
             self.channel.detector_shape,
@@ -43,3 +46,28 @@ class DetectorComponent:
             sum_over_lambda=True,
             algorithm='interpolation',
         )
+
+
+class DispersedComponent:
+    
+    def __init__(self, filter, **kwargs):
+        components = []
+        for order in self.spectral_orders:
+            channel = SpectrogramChannel(order, filter)
+            component = DetectorComponent(channel, **kwargs)
+            components.append(component)
+        self.components = components
+
+    @property
+    def spectral_orders(self):
+        return [-3, -1, 0, 1, 3]
+
+    def compute(self, spectral_cube, **kwargs):
+        results = {}
+        for component in self.components:
+            results[component.channel.spectral_order] = component.compute(spectral_cube, **kwargs)
+        return results
+
+
+class FiltergramComponent:
+    ...
