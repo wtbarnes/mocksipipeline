@@ -4,7 +4,6 @@ Skeleton for DEM Models
 import parse
 import numpy as np
 from scipy.interpolate import interp1d
-from astropy.utils.data import get_pkg_data_filename
 import astropy.units as u
 import astropy.constants as const
 import aiapy.response
@@ -41,14 +40,19 @@ class DemModel:
 
     @spectral_table.setter
     def spectral_table(self, value):
-        if isinstance(value, ndcube.NDCube):
-            self._spectral_table = value
-        else:
-            from synthesizAR.atomic.idl import read_spectral_table
-            if value is None:
-                value = get_pkg_data_filename('data/chianti-spectrum.asdf',
-                                              package='mocksipipeline.physics.spectral')
-            self._spectral_table = read_spectral_table(value)
+        from mocksipipeline.physics.spectral import SpectralModel
+        self._spectral_table = SpectralModel(spectral_table=value).spectral_table
+
+    @property
+    def celestial_wcs(self):
+        # NOTE: This is extracted from the original collection (rather than the 
+        # resulting DEM) because the DEM has a gwcs that makes it currently
+        # impossible to extract the celestial FITS WCS from. Once that is fixed,
+        # this will not be necessary.
+        # NOTE: It does not matter which key is selected. They all have the same
+        # WCS.
+        key_0 = list(self.collection.keys())[0]
+        return self.collection[key_0].wcs
 
     def get_cross_calibration_factor(self, key):
         """
@@ -56,7 +60,7 @@ class DemModel:
 
         This is needed to resolve excess emission in XRT relative to other instruments.
         Per discussions with P.S. Athiray, best to use 1.5 for Be channels and 2.5 for
-        all other channels.Also see the following papers for a more full discussion of
+        all other channels. Also see the following papers for a more full discussion of
         these cross-calibration factors:
 
         - Schmelz et al. (2015) https://doi.org/10.1088/0004-637X/806/2/232

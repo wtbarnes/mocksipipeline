@@ -30,6 +30,7 @@ class DataPrep(DemModel):
         self.aia_correction_table = aia_correction_table
         self.aia_error_table = aia_error_table
         self.aia_pointing_table = aia_pointing_table
+        self.conserve_flux = kwargs.pop('conserve_flux', False)
         super().__init__(*args, **kwargs)
 
     @property
@@ -126,11 +127,15 @@ class DataPrep(DemModel):
 
     def reproject_map(self, smap, ref_frame):
         new_header = self.build_new_header(smap, ref_frame)
-        # Explicitly using adaptive reprojection with flux conservation here as using interpolation
-        # when resampling to very different resolutions (e.g. AIA to XRT) can lead to large differences
+        # Explicitly using adaptive reprojection here as using interpolation when resampling to
+        # very different resolutions (e.g. AIA to XRT) can lead to large differences
         # as compared to the original image.
         with Helioprojective.assume_spherical_screen(smap.observer_coordinate, only_off_disk=True):
-            _smap = smap.reproject_to(astropy.wcs.WCS(new_header), algorithm='adaptive', conserve_flux=True)
+            _smap = smap.reproject_to(astropy.wcs.WCS(new_header),
+                                      algorithm='adaptive',
+                                      conserve_flux=self.conserve_flux,
+                                      boundary_mode='strict', 
+                                      kernel='Gaussian')
         # NOTE: we manually rebuild the Map in order to preserve the metadata and to also fill in
         # the missing values 
         new_data = _smap.data
