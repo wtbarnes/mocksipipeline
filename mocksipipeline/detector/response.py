@@ -23,7 +23,7 @@ __all__ = [
 ]
 
 
-def convolve_with_response(cube, channel, include_gain=True):
+def convolve_with_response(cube, channel, electrons=True, include_gain=False):
     """
     Convolve spectral cube with wavelength response to convert spectra to instrument units.
     
@@ -31,8 +31,11 @@ def convolve_with_response(cube, channel, include_gain=True):
     ----------
     cube : `ndcube.NDCube`
     channel : `Channel`
+    electrons : `bool`, optional
+        If True, include conversion factor from photons to electrons.
     include_gain : `bool`, optional
-        If True, include conversion factor from photons to DN
+        If True, include conversion fractor from electrons to DN. Cannot be true
+        if `electrons` is False.
     
     Return
     ------
@@ -40,10 +43,11 @@ def convolve_with_response(cube, channel, include_gain=True):
         Spectral cube in detector units convolved with instrument response
     """
     # Compute instrument response
-    if include_gain:
-        response = channel.wavelength_response
-    else:
-        response = channel.effective_area
+    response = channel.effective_area
+    if electrons:
+        response *= channel.electron_per_photon
+        if include_gain:
+            response *= channel.camera_gain
     # Multiply by the spatial and spectral plate scale (factor of sr)
     # NOTE: does it make sense to do this before interpolating to the *exact*
     # instrument resolution?
@@ -92,7 +96,9 @@ class Channel:
     filter: `~mocksipipeline.detector.filter.ThinFilmFilter` or list
         If multiple filters are specified, the the filter transmission is computed as
         the product of the transmissivities. 
-    instrument_file
+    instrument_file: `str`, optional
+        Instrument file (in genx format) to pull wavelength response information from.
+        This is mostly used for getting the grating and detector efficiency.
     """
 
     def __init__(self, name, filters, instrument_file=None):
@@ -262,21 +268,18 @@ class Channel:
     
     @property
     @u.quantity_input
-    def gain(self) -> u.ct / u.photon:
+    def electron_per_photon(self) -> u.electron / u.photon:
         # This is approximately the average energy to free an electron
         # in silicon
         energy_per_electron = 3.65 * u.Unit('eV / electron')
         energy_per_photon = const.h * const.c / self.wavelength / u.photon
         electron_per_photon = energy_per_photon / energy_per_electron
-        # Cannot discharge less than one electron per photon
-        discharge_floor = 1 * u.Unit('electron / photon')
-        electron_per_photon[electron_per_photon<discharge_floor] = discharge_floor
-        return electron_per_photon * self.camera_gain
+        return electron_per_photon
 
     @property
     @u.quantity_input
     def wavelength_response(self) -> u.Unit('cm^2 ct / photon'):
-        return self.effective_area * self.gain
+        return self.effective_area * self.electron_per_photon * self.gain
     
 
 class SpectrogramChannel(Channel):
