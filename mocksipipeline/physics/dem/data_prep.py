@@ -30,7 +30,6 @@ class DataPrep(DemModel):
         self.aia_correction_table = aia_correction_table
         self.aia_error_table = aia_error_table
         self.aia_pointing_table = aia_pointing_table
-        self.conserve_flux = kwargs.pop('conserve_flux', False)
         super().__init__(*args, **kwargs)
 
     @property
@@ -51,17 +50,13 @@ class DataPrep(DemModel):
         for m in self.map_list:
             # Apply any needed corrections prior to reprojection
             m = self.apply_corrections(m)
-            # Reproject map to common WCS
-            _m = self.reproject_map(m, ref_frame)
             # NOTE: need to know approximately how many pixels we combined into each new pixel
-            # in order to compute the error on each map
-            n_sample = int(np.round(m.dimensions.x / _m.dimensions.x))
-            m = _m
+            # in order to compute the error on each map in the case of the AIA images
+            n_sample = int(np.round(m.dimensions.x / self.new_shape[1] * m.dimensions.y / self.new_shape[0]).value)
+            # Reproject map to common WCS
+            m = self.reproject_map(m, ref_frame)
             # Compute uncertainty
             error = self.compute_uncertainty(m, n_sample)
-            # Normalize by exposure time. This is purposefully done AFTER computing the errors
-            # because the AIA error calculation relies on the units being in DN pix-1.
-            m /= m.exposure_time
             # Build cube
             cube = ndcube.NDCube(m.quantity, wcs=m.wcs, uncertainty=error, meta=m.meta, )
             cubes.append((str(m.measurement), cube))
@@ -76,7 +71,14 @@ class DataPrep(DemModel):
             smap = aiapy.calibrate.correct_degradation(smap,
                                                        correction_table=self.aia_correction_table,
                                                        calibration_version=8,)
-        # NOTE: If XRT needs any corrections, add them here
+            smap /= smap.exposure_time
+        elif 'XRT' in smap.instrument:
+            # NOTE: the level 2 maps do not have a unit designation in their header but based on
+            # the description of the level 2 composite synoptic images described in Takeda et al. (2016)
+            # the images have all been normalized to their exposure time and thus are in units of DN s-1
+            # The reason for this is these composite images are composed of images with different
+            # exposure times to account for over exposure in images where the exposure time is too short.
+            smap.meta['BUNIT'] = 'DN/s'
         return smap
             
     @property
@@ -90,15 +92,15 @@ class DataPrep(DemModel):
 
     def compute_uncertainty(self, smap, n_sample):
         if 'AIA' in smap.instrument:
-            error = aiapy.calibrate.estimate_error(smap.quantity,
+            error = aiapy.calibrate.estimate_error(smap.quantity * smap.exposure_time,
                                                    smap.wavelength,
                                                    n_sample=n_sample,
                                                    error_table=self.aia_error_table)
+            error /= smap.exposure_time
         else:
             # For XRT, just assume 20% uncertainty
             error = smap.quantity * 0.2
         error[np.isnan(error)] = 0.0 * error.unit
-        error /= smap.exposure_time
         return StdDevUncertainty(error)
 
     def build_new_header(self, smap, new_frame):
@@ -115,7 +117,7 @@ class DataPrep(DemModel):
             wavelength=smap.wavelength,
             exposure=smap.exposure_time,
             projection_code='TAN',
-            unit=smap.unit / u.pix if smap.unit is not None else u.ct / u.pix,
+            unit=smap.unit / u.pix,
         )
         # NOTE: preserve the filter wheel keywords in the case of XRT. These
         # are not easily propagated through via property names on the map itself.
@@ -130,10 +132,13 @@ class DataPrep(DemModel):
         # Explicitly using adaptive reprojection here as using interpolation when resampling to
         # very different resolutions (e.g. AIA to XRT) can lead to large differences
         # as compared to the original image.
+        # NOTE: Explicitly conserving flux here. The corresponding response functions used to
+        # perform the DEM inversion are multiplied by the appropriate plate scale to account for
+        # the fact that many pixels are being effectively summed together.
         with Helioprojective.assume_spherical_screen(smap.observer_coordinate, only_off_disk=True):
             _smap = smap.reproject_to(astropy.wcs.WCS(new_header),
                                       algorithm='adaptive',
-                                      conserve_flux=self.conserve_flux,
+                                      conserve_flux=True,
                                       boundary_mode='strict', 
                                       kernel='Gaussian')
         # NOTE: we manually rebuild the Map in order to preserve the metadata and to also fill in

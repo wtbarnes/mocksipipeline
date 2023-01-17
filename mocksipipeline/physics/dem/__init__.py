@@ -1,16 +1,16 @@
 """
 Skeleton for DEM Models
 """
-import parse
-import numpy as np
-from scipy.interpolate import interp1d
+import aiapy.response
 import astropy.units as u
 import astropy.constants as const
-import aiapy.response
-import astropy.time
 import ndcube
+import numpy as np
+import parse
+import sunpy.map
 import xrtpy
 
+from scipy.interpolate import interp1d
 from sunkit_dem import Model
 
 from .dem_models import *  # this registers the relevant models
@@ -79,6 +79,16 @@ class DemModel:
     def response_kernels(self):
         kernels = {}
         for key in self.collection:
+            # NOTE: Make a map here to make it easier to access the needed
+            # properties
+            smap = sunpy.map.Map(self.collection[key].data, self.collection[key].wcs)
+            # NOTE: Explicitly calculating the plate scale here as the the maps in the
+            # collection likely do not have the nominal plate scale and this is needed
+            # to compute the temperature response function
+            # NOTE: We multiply by pixel because the plate scale should be in units of
+            # arcsecond^2 per pixel and each scale factor of the map has units of
+            # arcsecond per pixel.
+            plate_scale = smap.scale.axis1 * smap.scale.axis2 * u.pix
             # TODO: make these tests a bit more strict
             is_aia = 'angstrom' in key.lower()
             is_xrt = 'open' in key.lower()
@@ -87,28 +97,20 @@ class DemModel:
                 c = aiapy.response.Channel(_key)
                 # NOTE: Intentionally not including the obstime here to include the degradation correction
                 # because the input maps have already been corrected for degradation.
-                response = c.wavelength_response() * c.plate_scale
+                response = c.wavelength_response() * plate_scale
                 wavelength = c.wavelength
             elif is_xrt:
                 # NOTE: The filter wheel designations can be in either order
                 _key = parse.parse('{filter}-open', key.lower()) or parse.parse('open-{filter}', key.lower())
                 _key = '-'.join(_key['filter'].split())
-                # NOTE: Intentionally setting the date to near the start of the XRT mission to effectively have
-                # zero contamination. The current implementation of the contamination data in xrtpy throws an 
-                # exception for dates outside of the range of the contamination data and this data does not extend
-                # over the entire mission.
-                # NOTE: This date is being chosen because there is a serious bug in xrtpy that results in this being
-                # the only date that does not return all NaN values for the effective area. Until that bug is resolved,
-                # this date must be hardcoded to exactly this value. See https://github.com/HinodeXRT/xrtpy/issues/97.
-                date = astropy.time.Time("2006-09-22T22:45:45")
-                trf = xrtpy.response.TemperatureResponseFundamental(_key, date)
+                trf = xrtpy.response.TemperatureResponseFundamental(_key, smap.date)
                 ea = trf.effective_area()
                 gain = const.c * const.h / trf.channel_wavelength / trf.ev_per_electron / trf.ccd_gain_right
                 # NOTE: the xrtpy package makes use of the new unit in astropy DN which is much more commonly used
                 # in solar physics. However, DN is not a unit recognized in the FITS standard so we substitute it 
                 # for count. This is currently the unit that we use in sunpy in place of DN.
                 gain = gain * u.count / u.DN
-                response = ea * gain * trf.solid_angle_per_pixel
+                response = ea * gain * plate_scale
                 response *= self.get_cross_calibration_factor(key)
                 # NOTE: This is somewhat confusingly in units of ph Angstroms
                 wavelength = trf.channel_wavelength.to_value('ph Angstrom') * u.angstrom
@@ -116,7 +118,10 @@ class DemModel:
                 raise KeyError(f'Unrecognized key {key}. Should be an AIA channel or XRT filter wheel combination.')
             T, tresp = compute_temperature_response(self.spectral_table, wavelength, response, return_temperature=True)
             kernels[key] = np.interp(self.temperature_bin_centers, T, tresp)
-        
+            # NOTE: This explicit unit conversion is just to ensure there are no units issues when doing the inversion
+            # (since units are stripped off in the actual calculation).
+            kernels[key] = kernels[key].to('cm5 ct pix-1 s-1')
+
         return kernels
 
     @property
@@ -127,15 +132,17 @@ class DemModel:
         """
         return {
             # NOTE: some experimentation seems to show that this set of parameters
-            # yields reasonably smooth solutions.
+            # yields reasonably smooth, positive solutions.
             'hk12': {
-                'alpha': 2.0,
-                'increase_alpha': 1.5,
-                'max_iterations': 50,  
+                'alpha': 1.5,
+                'increase_alpha': 1.2,
+                'max_iterations': 100,
+                'use_em_loci': True,
+                'emd_int': True,  
             }
         }
 
-    def run(self):
+    def run(self, clip_negative=True, **kwargs):
         # Run the DEM model and return a DEM data cube with dimensions space, space, temperature
         dem_model = Model(
             self.collection,
@@ -143,7 +150,18 @@ class DemModel:
             self.temperature_bin_edges,
             model=self.dem_model,
         )
-        return dem_model.fit(**self.dem_settings[self.dem_model])
+        dem_settings = self.dem_settings[self.dem_model]
+        dem_settings.update(**kwargs)
+        dem_res = dem_model.fit(**dem_settings)
+        if clip_negative:
+            dem_data = np.where(dem_res['em'].data<0.0, 0.0, dem_res['em'].data)
+            return ndcube.NDCube(dem_data,
+                                 wcs=dem_res['em'].wcs,
+                                 meta=dem_res['em'].meta,
+                                 unit=dem_res['em'].unit,
+                                 mask=dem_res['em'].mask)
+        else:
+            return dem_res['em']
 
 
 def compute_temperature_response(spectra,
