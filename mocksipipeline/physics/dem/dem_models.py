@@ -96,7 +96,7 @@ class CheungModel(GenericModel):
 
 class HK12Model(GenericModel):
 
-    def _model(self, alpha=1.0, increase_alpha=1.5, max_iterations=10, guess=None, use_em_loci=False):
+    def _model(self, alpha=1.0, increase_alpha=1.5, max_iterations=10, guess=None, use_em_loci=False, **kwargs):
         errors = np.array([self.data[k].uncertainty.array.squeeze() for k in self._keys]).T
         dem, edem, elogt, chisq, dn_reg = dn2dem(
             self.data_matrix.value.T,
@@ -109,6 +109,7 @@ class HK12Model(GenericModel):
             rgt_fact=increase_alpha,
             dem_norm0=guess,
             gloci=use_em_loci,
+            **kwargs,
         )
         dem_unit = self.data_matrix.unit / self.kernel_matrix.unit / self.temperature_bin_edges.unit
         uncertainty = edem.T * dem_unit
@@ -119,9 +120,9 @@ class HK12Model(GenericModel):
         return {'dem': dem,
                 'uncertainty': uncertainty,
                 'em': em,
-                'temperature_errors_upper': T_error_upper,
-                'temperature_errors_lower': T_error_lower,
-                'chi_squared': np.atleast_1d(chisq)}
+                'temperature_errors_upper': T_error_upper.T,
+                'temperature_errors_lower': T_error_lower.T,
+                'chi_squared': np.atleast_1d(chisq).T}
 
     @classmethod
     def defines_model_for(self, *args, **kwargs):
