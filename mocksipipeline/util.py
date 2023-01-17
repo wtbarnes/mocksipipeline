@@ -10,7 +10,7 @@ import numpy as np
 from overlappy.io import read_overlappogram
 from overlappy.util import strided_array
 
-__all__ = ['read_data_cube']
+__all__ = ['read_data_cube', 'stack_components']
 
 
 def read_data_cube(filename, hdu=0):
