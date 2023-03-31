@@ -19,7 +19,7 @@ class DetectorComponent:
         self.dispersion_angle = dispersion_angle
 
     def compute(self, spectral_cube, include_gain=False, electrons=True):
-        instr_cube = convolve_with_response(spectral_cube, 
+        instr_cube = convolve_with_response(spectral_cube,
                                             self.channel,
                                             include_gain=include_gain,
                                             electrons=electrons)
@@ -31,7 +31,7 @@ class DetectorComponent:
             reference_coord=(
                 0*u.arcsec,
                 0*u.arcsec,
-                instr_cube.axis_world_coords(0)[0].to('angstrom')[0],
+                0*u.angstrom,
             ),
             scale=(
                 self.channel.resolution[0],
@@ -50,10 +50,12 @@ class DetectorComponent:
 
 class DispersedComponent:
     
-    def __init__(self, filter, **kwargs):
+    def __init__(self, filter, channel_kwargs=None, **kwargs):
+        if channel_kwargs is None:
+            channel_kwargs = {}
         components = []
         for order in self.spectral_orders:
-            channel = SpectrogramChannel(order, filter)
+            channel = SpectrogramChannel(order, filter, **channel_kwargs)
             component = DetectorComponent(channel, **kwargs)
             components.append(component)
         self.components = components
