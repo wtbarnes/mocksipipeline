@@ -1,15 +1,18 @@
 """
 DEM models and utilities
 """
+import sys
+
 import astropy.units as u
 import numpy as np
 from sunkit_dem import GenericModel
 from demregpy import dn2dem
 
+
 from .dem_algorithms import simple_reg_dem, sparse_em_init, sparse_em_solve
 
 
-__all__ = ['HK12Model', 'PlowmanModel', 'CheungModel']
+__all__ = ['HK12Model', 'HK12IainModel', 'PlowmanModel', 'CheungModel']
 
 
 class PlowmanModel(GenericModel):
@@ -102,6 +105,43 @@ class HK12Model(GenericModel):
             self.data_matrix.value.T,
             errors,
             self.kernel_matrix.value.T,
+            np.log10(self.kernel_temperatures.to_value(u.K)),
+            self.temperature_bin_edges.to_value(u.K),
+            max_iter=max_iterations,
+            reg_tweak=alpha,
+            rgt_fact=increase_alpha,
+            dem_norm0=guess,
+            gloci=use_em_loci,
+            **kwargs,
+        )
+        dem_unit = self.data_matrix.unit / self.kernel_matrix.unit / self.temperature_bin_edges.unit
+        uncertainty = edem.T * dem_unit
+        em = (dem * np.diff(self.temperature_bin_edges)).T * dem_unit
+        dem = dem.T * dem_unit
+        T_error_upper = self.temperature_bin_centers * (10**elogt -1 )
+        T_error_lower = self.temperature_bin_centers * (1 - 1 / 10**elogt)
+        return {'dem': dem,
+                'uncertainty': uncertainty,
+                'em': em,
+                'temperature_errors_upper': T_error_upper.T,
+                'temperature_errors_lower': T_error_lower.T,
+                'chi_squared': np.atleast_1d(chisq).T}
+
+    @classmethod
+    def defines_model_for(self, *args, **kwargs):
+        return kwargs.get('model') == 'hk12'
+
+
+class HK12IainModel(GenericModel):
+
+    def _model(self, alpha=1.0, increase_alpha=1.5, max_iterations=10, guess=None, use_em_loci=False, **kwargs):
+        sys.path.append('/Users/wtbarnes/Documents/codes/demreg/python/')
+        from dn2dem_pos import dn2dem_pos
+        errors = np.array([self.data[k].uncertainty.array.squeeze() for k in self._keys]).T
+        dem, edem, elogt, chisq, dn_reg = dn2dem_pos(
+            self.data_matrix.value.T,
+            errors,
+            self.kernel_matrix.value.T,
             np.log10(self.temperature_bin_centers.to(u.K).value),
             self.temperature_bin_edges.to(u.K).value,
             max_iter=max_iterations,
@@ -126,4 +166,4 @@ class HK12Model(GenericModel):
 
     @classmethod
     def defines_model_for(self, *args, **kwargs):
-        return kwargs.get('model') == 'hk12'
+        return kwargs.get('model') == 'hk12iain'

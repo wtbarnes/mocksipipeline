@@ -18,7 +18,11 @@ from .dem_models import *  # this registers the relevant models
 
 class DemModel:
 
-    def __init__(self, temperature_bin_edges, collection=None, spectral_table=None, dem_model='hk12',
+    def __init__(self,
+                 temperature_bin_edges,
+                 collection=None,
+                 spectral_table='sun_coronal_1992_feldman_ext_all',
+                 dem_model='hk12',
                  include_cross_calibration=True):
         self.temperature_bin_edges = temperature_bin_edges
         self.collection = collection
@@ -45,7 +49,7 @@ class DemModel:
 
     @property
     def celestial_wcs(self):
-        # NOTE: This is extracted from the original collection (rather than the 
+        # NOTE: This is extracted from the original collection (rather than the
         # resulting DEM) because the DEM has a gwcs that makes it currently
         # impossible to extract the celestial FITS WCS from. Once that is fixed,
         # this will not be necessary.
@@ -56,7 +60,7 @@ class DemModel:
 
     def get_cross_calibration_factor(self, key):
         """
-        Factor to multiply XRT response functions by 
+        Factor to multiply XRT response functions by
 
         This is needed to resolve excess emission in XRT relative to other instruments.
         Per discussions with P.S. Athiray, best to use 1.5 for Be channels and 2.5 for
@@ -76,6 +80,10 @@ class DemModel:
             return 2.5
 
     @property
+    def kernel_temperatures(self) -> u.K:
+        return 10**np.arange(5, 8, 0.05) * u.K
+
+    @property
     def response_kernels(self):
         kernels = {}
         for key in self.collection:
@@ -84,7 +92,7 @@ class DemModel:
             smap = sunpy.map.Map(self.collection[key].data, self.collection[key].wcs)
             # NOTE: Explicitly calculating the plate scale here as the the maps in the
             # collection likely do not have the nominal plate scale and this is needed
-            # to compute the temperature response function
+            # to compute the temperature response function.
             # NOTE: We multiply by pixel because the plate scale should be in units of
             # arcsecond^2 per pixel and each scale factor of the map has units of
             # arcsecond per pixel.
@@ -117,7 +125,7 @@ class DemModel:
             else:
                 raise KeyError(f'Unrecognized key {key}. Should be an AIA channel or XRT filter wheel combination.')
             T, tresp = compute_temperature_response(self.spectral_table, wavelength, response, return_temperature=True)
-            kernels[key] = np.interp(self.temperature_bin_centers, T, tresp)
+            kernels[key] = np.interp(self.kernel_temperatures, T, tresp)
             # NOTE: This explicit unit conversion is just to ensure there are no units issues when doing the inversion
             # (since units are stripped off in the actual calculation).
             kernels[key] = kernels[key].to('cm5 ct pix-1 s-1')
@@ -134,11 +142,12 @@ class DemModel:
             # NOTE: some experimentation seems to show that this set of parameters
             # yields reasonably smooth, positive solutions.
             'hk12': {
-                'alpha': 1.5,
-                'increase_alpha': 1.2,
-                'max_iterations': 100,
+                'alpha': 1.0,
+                'increase_alpha': 1.5,
+                'max_iterations': 50,
                 'use_em_loci': True,
-                'emd_int': True,  
+                'emd_int': True,
+                'l_emd': True,
             }
         }
 
@@ -148,13 +157,14 @@ class DemModel:
             self.collection,
             self.response_kernels,
             self.temperature_bin_edges,
+            kernel_temperatures=self.kernel_temperatures,
             model=self.dem_model,
         )
         dem_settings = self.dem_settings[self.dem_model]
         dem_settings.update(**kwargs)
         dem_res = dem_model.fit(**dem_settings)
         if clip_negative:
-            dem_data = np.where(dem_res['em'].data<0.0, 0.0, dem_res['em'].data)
+            dem_data = np.where(dem_res['em'].data < 0.0, 0.0, dem_res['em'].data)
             return ndcube.NDCube(dem_data,
                                  wcs=dem_res['em'].wcs,
                                  meta=dem_res['em'].meta,

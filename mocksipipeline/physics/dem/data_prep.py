@@ -24,12 +24,21 @@ from mocksipipeline.physics.dem import DemModel
 
 class DataPrep(DemModel):
 
-    def __init__(self, *args, map_list=None, aia_correction_table=None, 
-                 aia_error_table=None, aia_pointing_table=None, **kwargs):
+    def __init__(self,
+                 *args,
+                 map_list=None,
+                 aia_correction_table=None,
+                 aia_error_table=None,
+                 aia_pointing_table=None,
+                 use_aia_errors=False,
+                 conserve_flux=True,
+                 **kwargs):
         self.map_list = map_list
         self.aia_correction_table = aia_correction_table
         self.aia_error_table = aia_error_table
         self.aia_pointing_table = aia_pointing_table
+        self.use_aia_errors = use_aia_errors
+        self.conserve_flux = conserve_flux
         super().__init__(*args, **kwargs)
 
     @property
@@ -48,6 +57,8 @@ class DataPrep(DemModel):
         ref_frame = self.map_list[0].coordinate_frame
         cubes = []
         for m in self.map_list:
+            # Replace negative values with zeros
+            m = m._new_instance(np.where(m.data<0, 0, m.data), m.meta)
             # Apply any needed corrections prior to reprojection
             m = self.apply_corrections(m)
             # NOTE: need to know approximately how many pixels we combined into each new pixel
@@ -58,10 +69,10 @@ class DataPrep(DemModel):
             # Compute uncertainty
             error = self.compute_uncertainty(m, n_sample)
             # Build cube
-            cube = ndcube.NDCube(m.quantity, wcs=m.wcs, uncertainty=error, meta=m.meta, )
+            cube = ndcube.NDCube(m.quantity, wcs=m.wcs, uncertainty=error, meta=m.meta)
             cubes.append((str(m.measurement), cube))
 
-        map_collection = ndcube.NDCollection(cubes, aligned_axes=(0,1))
+        map_collection = ndcube.NDCollection(cubes, aligned_axes=(0, 1))
         return map_collection
 
     def apply_corrections(self, smap):
@@ -91,15 +102,21 @@ class DataPrep(DemModel):
         return u.Quantity([5, 5], 'arcsec / pix')
 
     def compute_uncertainty(self, smap, n_sample):
-        if 'AIA' in smap.instrument:
+        if 'AIA' in smap.instrument and self.use_aia_errors:
+            # NOTE: If conserving flux in each pixel, this is not really doing the right
+            # thing as this is the uncertainty if we were averaging the intensity in 
+            # each pixel. However, if conserving flux, the intensity is being effectively
+            # summed into each pixel so this uncertainty will be much too small.
             error = aiapy.calibrate.estimate_error(smap.quantity * smap.exposure_time,
                                                    smap.wavelength,
                                                    n_sample=n_sample,
                                                    error_table=self.aia_error_table)
             error /= smap.exposure_time
         else:
-            # For XRT, just assume 20% uncertainty
-            error = smap.quantity * 0.2
+            # Simplest case is to just always assume %20 errors on everything
+            # Adding in quadrature (statistical error) and assuming all
+            # contributions to the superpixel are the mean.
+            error = smap.quantity * 0.2 / np.sqrt(n_sample)
         error[np.isnan(error)] = 0.0 * error.unit
         return StdDevUncertainty(error)
 
@@ -138,7 +155,7 @@ class DataPrep(DemModel):
         with Helioprojective.assume_spherical_screen(smap.observer_coordinate, only_off_disk=True):
             _smap = smap.reproject_to(astropy.wcs.WCS(new_header),
                                       algorithm='adaptive',
-                                      conserve_flux=True,
+                                      conserve_flux=self.conserve_flux,
                                       boundary_mode='strict', 
                                       kernel='Gaussian')
         # NOTE: we manually rebuild the Map in order to preserve the metadata and to also fill in
