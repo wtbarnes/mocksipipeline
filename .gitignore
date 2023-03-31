@@ -1,5 +1,6 @@
 # Template specific
 mocksipipeline/version.py
+*.asdf
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
