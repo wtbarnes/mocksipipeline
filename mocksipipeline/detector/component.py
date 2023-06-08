@@ -49,7 +49,7 @@ class DetectorComponent:
 
 
 class DispersedComponent:
-    
+
     def __init__(self, filter, channel_kwargs=None, **kwargs):
         if channel_kwargs is None:
             channel_kwargs = {}

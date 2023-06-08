@@ -13,6 +13,7 @@ from scipy.interpolate import interp1d
 from sunpy.util import MetaDict
 from sunpy.io.special import read_genx
 
+from overlappy.wcs import overlappogram_fits_wcs, pcij_matrix
 from synthesizAR.instruments.util import extend_celestial_wcs
 
 from mocksipipeline.detector.filter import ThinFilmFilter
@@ -118,16 +119,35 @@ class Channel:
         relevant half of the detector.
     """
 
-    def __init__(self, name, filters, instrument_file=None, full_detector=True):
+    def __init__(self, name, filters=None, instrument_file=None, full_detector=True):
         self.name = name
-        self.filters = filters
+        if filters is None:
+            self.filters = self._default_filters[self.name]
+        else:
+            self.filters = filters
         if instrument_file is None:
-            instrument_file = get_pkg_data_filename('data/MOXSI_effarea.genx', package='mocksipipeline.detector')
+            instrument_file = get_pkg_data_filename('data/MOXSI_effarea.genx',
+                                                    package='mocksipipeline.detector')
         self._instrument_data = self._get_instrument_data(instrument_file)
         self.full_detector = full_detector
 
     def _get_instrument_data(self, instrument_file):
         return read_genx(instrument_file)
+
+    @property
+    def _default_filters(self):
+        # These are based off the current instrument design
+        polymide = ThinFilmFilter(elements=['C', 'H', 'N', 'O'],
+                                  quantities=[22, 10, 2, 5],
+                                  density=1.43*u.g/u.cm**3,
+                                  thickness=1*u.micron, xrt_table='Chantler')
+        aluminum = ThinFilmFilter(elements='Al', thickness=150*u.nm, xrt_table='Chantler')
+        return {
+            'filtergram_1': ThinFilmFilter('Be', thickness=8*u.micron, xrt_table='Chantler'),
+            'filtergram_2': ThinFilmFilter('Be', thickness=30*u.micron, xrt_table='Chantler'),
+            'filtergram_3': ThinFilmFilter('Be', thickness=350*u.micron, xrt_table='Chantler'),
+            'filtergram_4': [polymide, aluminum],
+        }
 
     @property
     def filters(self):
@@ -352,6 +372,21 @@ class Channel:
         wave_response = self.effective_area * self.electron_per_photon * self.camera_gain
         return np.where(self._energy_is_inf, 0*u.Unit('cm2 ct /ph'), wave_response)
 
+    def get_wcs(self, observer, roll_angle=-90*u.deg, dispersion_angle=0*u.deg):
+        pc_matrix = pcij_matrix(roll_angle,
+                                dispersion_angle,
+                                order=self.spectral_order,
+                                dispersion_axis=0)
+        return overlappogram_fits_wcs(
+            self.detector_shape,
+            self.wavelength,
+            (self.resolution[0], self.resolution[1], self.spectral_resolution),
+            reference_pixel=self.reference_pixel,
+            reference_coord=(0*u.arcsec, 0*u.arcsec, 0*u.angstrom),
+            pc_matrix=pc_matrix,
+            observer=observer,
+        )
+
 
 class SpectrogramChannel(Channel):
     """
@@ -365,10 +400,16 @@ class SpectrogramChannel(Channel):
     include_au_cr
     """
 
-    def __init__(self, order, filter, **kwargs):
+    def __init__(self, order, **kwargs):
         self.include_au_cr = kwargs.pop('include_au_cr', True)
         self.spectral_order = order
-        super().__init__('dispersed_image', filter, **kwargs)
+        super().__init__('dispersed_image', **kwargs)
+
+    @property
+    def _default_filters(self):
+        return {
+            'dispersed_image': ThinFilmFilter(elements='Al', thickness=150*u.nm, xrt_table='Chantler'),
+        }
 
     @property
     def _data_index(self):

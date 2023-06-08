@@ -4,8 +4,6 @@ Module for converting DEM to spectral cube
 import warnings
 
 import ndcube
-import numpy as np
-import astropy.units as u
 from astropy.utils.data import get_pkg_data_filenames
 
 __all__ = ['SpectralModel', 'get_spectral_tables']
