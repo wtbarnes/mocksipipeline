@@ -6,6 +6,7 @@ import copy
 import numpy as np
 import astropy.units as u
 import astropy.constants as const
+import astropy.table
 from astropy.utils.data import get_pkg_data_filename
 from ndcube import NDCube
 from ndcube.extra_coords import QuantityTableCoordinate
@@ -119,20 +120,25 @@ class Channel:
         relevant half of the detector.
     """
 
-    def __init__(self, name, filters=None, instrument_file=None, full_detector=True):
+    def __init__(self, name, filters=None, full_detector=True):
         self.name = name
         if filters is None:
             self.filters = self._default_filters[self.name]
         else:
             self.filters = filters
+        self.full_detector = full_detector
+
+    @staticmethod
+    def _read_genx_instrument_data(name, instrument_file=None):
+        # This is deprecated functionality for pulling parameters from the old genx file
         if instrument_file is None:
             instrument_file = get_pkg_data_filename('data/MOXSI_effarea.genx',
                                                     package='mocksipipeline.detector')
-        self._instrument_data = self._get_instrument_data(instrument_file)
-        self.full_detector = full_detector
-
-    def _get_instrument_data(self, instrument_file):
-        return read_genx(instrument_file)
+        instrument_data = read_genx(instrument_file)
+        index_mapping = {}
+        for i, c in enumerate(instrument_data['SAVEGEN0']):
+            index_mapping[c['CHANNEL']] = i
+        return MetaDict(instrument_data['SAVEGEN0'][index_mapping[name]])
 
     @property
     def _default_filters(self):
@@ -181,7 +187,7 @@ class Channel:
         # TODO: this should probably go in a file somewhere
         # We could pull this from the 'PIX_SIZE' key in the data files, but it
         # appears that value may be outdated
-        return (5.66, 5.66) * u.arcsec / u.pixel
+        return (7.4, 7.4) * u.arcsec / u.pixel
 
     @property
     def detector_shape(self):
@@ -224,23 +230,6 @@ class Channel:
         return self._reference_pixel_lookup[self.name]
 
     @property
-    def _index_mapping(self):
-        index_mapping = {}
-        for i, c in enumerate(self._instrument_data['SAVEGEN0']):
-            index_mapping[c['CHANNEL']] = i
-        return index_mapping
-
-    @property
-    def _data_index(self):
-        # NOTE: this is hardcoded because none of the properties, except the
-        # transmission, vary across the channel for the pinhole images
-        return self._index_mapping['Be_thin']
-
-    @property
-    def _data(self):
-        return MetaDict(self._instrument_data['SAVEGEN0'][self._data_index])
-
-    @property
     def name(self):
         return self._name
 
@@ -250,37 +239,17 @@ class Channel:
 
     @property
     @u.quantity_input
-    def _wavelength_data(self) -> u.angstrom:
-        return u.Quantity(self._data['wave'], 'angstrom')
-
-    @property
-    @u.quantity_input
     def wavelength(self) -> u.angstrom:
         # dispersion must start at 0
         wave_min = 0 * u.angstrom
         # this is the maximum wavelength at which emission from
         # the far limb of the sun will still fall on the detector
-        wave_max = 68 * u.angstrom
+        wave_max = 90 * u.angstrom
         return np.arange(
             wave_min.to_value('AA'),
             (wave_max + self.spectral_resolution*u.pix).to_value('AA'),
             (self.spectral_resolution*u.pix).to_value('AA'),
         ) * u.angstrom
-
-    def _wavelength_interpolator(self, value):
-        # Interpolates an array stored in the data file from the tabulated
-        # wavelengths to the wavelengths we want for this instrument
-        # NOTE: We are purposefully extrapolating as we assume that the difference
-        # between the two arrays is relatively small.
-        # NOTE: Once we can calculate each quantity ourselves, this can be removed
-        f_interp = interp1d(self._wavelength_data.to_value('Angstrom'),
-                            value,
-                            fill_value='extrapolate')
-        value_interp = f_interp(self.wavelength.to_value('Angstrom'))
-        # NOTE: setting anything less than the minimum wavelength to 0 as extrapolation
-        # at these wavelengths/energies is difficult. Extrapolating at low wavelengths
-        # seems to be ok.
-        return np.where(self.wavelength < self._wavelength_data[0], 0.0, value_interp)
 
     @property
     @u.quantity_input
@@ -305,8 +274,14 @@ class Channel:
 
     @property
     @u.quantity_input
+    def pinhole_diameter(self) -> u.cm:
+        # NOTE: this number comes from Jake
+        return 44 * u.micron
+
+    @property
+    @u.quantity_input
     def geometrical_collecting_area(self) -> u.cm**2:
-        return u.Quantity(self._data['geo_area'], 'cm^2')
+        return np.pi * (self.pinhole_diameter / 2)**2
 
     @property
     @u.quantity_input
@@ -319,13 +294,15 @@ class Channel:
     @property
     @u.quantity_input
     def grating_efficiency(self) -> u.dimensionless_unscaled:
-        # NOTE: this is just 1 for the filtergrams
-        return u.Quantity(self._wavelength_interpolator(self._data['grating']))
+        return u.Quantity(np.ones(self.wavelength.shape))
 
     @property
     @u.quantity_input
     def detector_efficiency(self) -> u.dimensionless_unscaled:
-        return u.Quantity(self._wavelength_interpolator(self._data['det']))
+        # NOTE: this thickness was determined by comparisons between the detector efficiency
+        # originally in the genx files from the origional proposal.
+        si = ThinFilmFilter('Si', thickness=33*u.micron, xrt_table='Chantler')
+        return 1.0 - si.transmissivity(self._energy_no_inf)
 
     @property
     @u.quantity_input
@@ -348,7 +325,7 @@ class Channel:
     @property
     @u.quantity_input
     def spectral_resolution(self) -> u.Unit('Angstrom / pix'):
-        return 55 * u.milliangstrom / u.pix
+        return 71.8 * u.milliangstrom / u.pix
 
     @property
     @u.quantity_input
@@ -401,8 +378,11 @@ class SpectrogramChannel(Channel):
     """
 
     def __init__(self, order, **kwargs):
-        self.include_au_cr = kwargs.pop('include_au_cr', True)
         self.spectral_order = order
+        self.grating_file = kwargs.pop('grating_file', None)
+        if self.grating_file is None:
+            self.grating_file = get_pkg_data_filename('data/hetgD1996-11-01greffpr001N0007.fits',
+                                                      package='mocksipipeline.detector')
         super().__init__('dispersed_image', **kwargs)
 
     @property
@@ -410,11 +390,6 @@ class SpectrogramChannel(Channel):
         return {
             'dispersed_image': ThinFilmFilter(elements='Al', thickness=150*u.nm, xrt_table='Chantler'),
         }
-
-    @property
-    def _data_index(self):
-        key = f'MOXSI_S{int(np.fabs(self.spectral_order))}'
-        return self._index_mapping[key]
 
     @property
     def _reference_pixel_lookup(self):
@@ -433,7 +408,7 @@ class SpectrogramChannel(Channel):
 
     @spectral_order.setter
     def spectral_order(self, value):
-        allowed_spectral_orders = [-3, -1, 0, 1, 3]
+        allowed_spectral_orders = [-3, -2, -1, 0, 1, 2, 3]
         if value not in allowed_spectral_orders:
             raise ValueError(f'{value} is not an allowed spectral order.')
         self._spectral_order = value
@@ -441,10 +416,43 @@ class SpectrogramChannel(Channel):
     @property
     @u.quantity_input
     def grating_efficiency(self) -> u.dimensionless_unscaled:
-        ge = super().grating_efficiency
-        if self.include_au_cr:
-            au_layer = ThinFilmFilter(elements='Au', thickness=20*u.nm, xrt_table='Chantler')
-            cr_layer = ThinFilmFilter(elements='Cr', thickness=5*u.nm, xrt_table='Chantler')
-            ge *= au_layer.transmissivity(self._energy_no_inf)
-            ge *= cr_layer.transmissivity(self._energy_no_inf)
-        return ge
+        # Get grating efficiency tables for both shells of the HEG grating
+        heg_shell_4 = self._read_grating_file(self.grating_file, 3)
+        heg_shell_6 = self._read_grating_file(self.grating_file, 4)
+        # Interpolate grating efficiency of relevant order to detector wavelength
+        ge_shell_4 = self._wavelength_interpolator(heg_shell_4['wavelength'],
+                                                   heg_shell_4[f'grating_efficiency_{self.spectral_order}'])
+        ge_shell_6 = self._wavelength_interpolator(heg_shell_6['wavelength'],
+                                                   heg_shell_6[f'grating_efficiency_{self.spectral_order}'])
+        # Shells corresponding to HEG gratings should be equivalent to what we have so averaging
+        # the two gives us the best estimate for our grating efficiency
+        return (ge_shell_4 + ge_shell_6) / 2
+
+    def _wavelength_interpolator(self, wavelength, value):
+        # Interpolates an array stored in the data file from the tabulated
+        # wavelengths to the wavelengths we want for this instrument
+        # NOTE: We are purposefully extrapolating as we assume that the difference
+        # between the two arrays is relatively small.
+        f_interp = interp1d(wavelength.to_value('Angstrom'),
+                            value,
+                            fill_value='extrapolate')
+        value_interp = f_interp(self.wavelength.to_value('Angstrom'))
+        # NOTE: setting anything less than the minimum wavelength to 0 as extrapolation
+        # at these wavelengths/energies is difficult. Extrapolating at low wavelengths
+        # seems to be ok.
+        return np.where(self.wavelength < wavelength.min(), 0.0, value_interp)
+
+    @staticmethod
+    def _read_grating_file(filename, hdu):
+        # This function reads the grating efficiency for the HETG Chandra gratings
+        # from the calibration FITS files. These were downloaded using the Chandra
+        # calibration database https://cxc.cfa.harvard.edu/caldb/about_CALDB/directory.html
+        tab = astropy.table.QTable.read(filename, hdu=hdu)
+        # Separate all orders into individual columns (-11 to +11, including 0)
+        orders = np.arange(-11, 12, 1, dtype=int)
+        for i, o in enumerate(orders):
+            tab[f'grating_efficiency_{o}'] = tab['EFF'].data[:, i]
+        tab.remove_columns(['EFF', 'SYS_MIN'])
+        tab.rename_column('ENERGY', 'energy')
+        tab['wavelength'] = (const.h * const.c / tab['energy']).to('Angstrom')
+        return tab

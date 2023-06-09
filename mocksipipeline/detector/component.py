@@ -62,7 +62,7 @@ class DispersedComponent:
 
     @property
     def spectral_orders(self):
-        return [-3, -1, 0, 1, 3]
+        return [-3, -2, -1, 0, 1, 2, 3]
 
     def compute(self, spectral_cube, **kwargs):
         results = {}
