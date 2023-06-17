@@ -122,10 +122,7 @@ class Channel:
 
     def __init__(self, name, filters=None, full_detector=True):
         self.name = name
-        if filters is None:
-            self.filters = self._default_filters[self.name]
-        else:
-            self.filters = filters
+        self.filters = filters
         self.full_detector = full_detector
 
     @staticmethod
@@ -161,6 +158,8 @@ class Channel:
 
     @filters.setter
     def filters(self, value):
+        if value is None:
+            value = self._default_filters[self.name]
         if isinstance(value, ThinFilmFilter):
             self._filters = [value]
         elif isinstance(value, list):
@@ -399,7 +398,7 @@ class SpectrogramChannel(Channel):
             py = (self.detector_shape[0]/2 - 1)/2
         else:
             py = (self.detector_shape[0] - 1)/2
-        lookup['dispersed_image'] = (px, py, 0)*u.pix
+        lookup['dispersed_image'] = (px, py, 0) * u.pix
         return lookup
 
     @property
@@ -408,7 +407,7 @@ class SpectrogramChannel(Channel):
 
     @spectral_order.setter
     def spectral_order(self, value):
-        allowed_spectral_orders = [-3, -2, -1, 0, 1, 2, 3]
+        allowed_spectral_orders = [-4, -3, -2, -1, 0, 1, 2, 3, 4]
         if value not in allowed_spectral_orders:
             raise ValueError(f'{value} is not an allowed spectral order.')
         self._spectral_order = value
@@ -426,21 +425,16 @@ class SpectrogramChannel(Channel):
                                                    heg_shell_6[f'grating_efficiency_{self.spectral_order}'])
         # Shells corresponding to HEG gratings should be equivalent to what we have so averaging
         # the two gives us the best estimate for our grating efficiency
-        return (ge_shell_4 + ge_shell_6) / 2
+        return u.Quantity((ge_shell_4 + ge_shell_6) / 2)
 
     def _wavelength_interpolator(self, wavelength, value):
         # Interpolates an array stored in the data file from the tabulated
         # wavelengths to the wavelengths we want for this instrument
-        # NOTE: We are purposefully extrapolating as we assume that the difference
-        # between the two arrays is relatively small.
         f_interp = interp1d(wavelength.to_value('Angstrom'),
                             value,
-                            fill_value='extrapolate')
-        value_interp = f_interp(self.wavelength.to_value('Angstrom'))
-        # NOTE: setting anything less than the minimum wavelength to 0 as extrapolation
-        # at these wavelengths/energies is difficult. Extrapolating at low wavelengths
-        # seems to be ok.
-        return np.where(self.wavelength < wavelength.min(), 0.0, value_interp)
+                            bounds_error=False,
+                            fill_value=0.0)
+        return f_interp(self.wavelength.to_value('Angstrom'))
 
     @staticmethod
     def _read_grating_file(filename, hdu):

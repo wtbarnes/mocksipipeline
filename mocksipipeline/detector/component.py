@@ -50,12 +50,12 @@ class DetectorComponent:
 
 class DispersedComponent:
 
-    def __init__(self, filter, channel_kwargs=None, **kwargs):
+    def __init__(self, channel_kwargs=None, **kwargs):
         if channel_kwargs is None:
             channel_kwargs = {}
         components = []
         for order in self.spectral_orders:
-            channel = SpectrogramChannel(order, filter, **channel_kwargs)
+            channel = SpectrogramChannel(order, **channel_kwargs)
             component = DetectorComponent(channel, **kwargs)
             components.append(component)
         self.components = components

@@ -91,15 +91,16 @@ class DataPrep(DemModel):
             # exposure times to account for over exposure in images where the exposure time is too short.
             smap.meta['BUNIT'] = 'DN/s'
         return smap
-            
+
     @property
     def new_shape(self):
-         # It doesn't really matter what this is as long as we include the full disk
-        return (450, 450)
+         # NOTE: calculated to include the full-disk from 1 AU
+        extent = 2500 * u.arcsec
+        return np.ceil((self.new_scale / extent).to_value('pix')).astype(int)
 
     @property
     def new_scale(self):
-        return u.Quantity([5, 5], 'arcsec / pix')
+        return u.Quantity([6, 6], 'arcsec / pix')
 
     def compute_uncertainty(self, smap, n_sample):
         if 'AIA' in smap.instrument and self.use_aia_errors:
@@ -156,10 +157,10 @@ class DataPrep(DemModel):
             _smap = smap.reproject_to(astropy.wcs.WCS(new_header),
                                       algorithm='adaptive',
                                       conserve_flux=self.conserve_flux,
-                                      boundary_mode='strict', 
+                                      boundary_mode='strict',
                                       kernel='Gaussian')
         # NOTE: we manually rebuild the Map in order to preserve the metadata and to also fill in
-        # the missing values 
+        # the missing values
         new_data = _smap.data
         new_data[np.isnan(new_data)] = np.nanmin(new_data)
         return sunpy.map.Map(new_data, new_header)
