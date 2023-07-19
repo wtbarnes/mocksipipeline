@@ -5,11 +5,13 @@ import os
 
 import aiapy.calibrate
 import astropy.units as u
+from astropy.stats import gaussian_fwhm_to_sigma
 from astropy.coordinates import SkyCoord
 from astropy.nddata import StdDevUncertainty
 import astropy.wcs
 import ndcube
 import numpy as np
+from scipy.ndimage import gaussian_filter
 from sunpy.coordinates import Helioprojective
 import sunpy.map
 from sunpy.net import Fido, attrs as a
@@ -32,6 +34,7 @@ class DataPrep(DemModel):
                  aia_pointing_table=None,
                  use_aia_errors=False,
                  conserve_flux=True,
+                 include_psf_blur=True,
                  **kwargs):
         self.map_list = map_list
         self.aia_correction_table = aia_correction_table
@@ -39,6 +42,7 @@ class DataPrep(DemModel):
         self.aia_pointing_table = aia_pointing_table
         self.use_aia_errors = use_aia_errors
         self.conserve_flux = conserve_flux
+        self.include_psf_blur = include_psf_blur
         super().__init__(*args, **kwargs)
 
     @property
@@ -58,7 +62,7 @@ class DataPrep(DemModel):
         cubes = []
         for m in self.map_list:
             # Replace negative values with zeros
-            m = m._new_instance(np.where(m.data<0, 0, m.data), m.meta)
+            m = m._new_instance(np.where(m.data < 0, 0, m.data), m.meta)
             # Apply any needed corrections prior to reprojection
             m = self.apply_corrections(m)
             # NOTE: need to know approximately how many pixels we combined into each new pixel
@@ -66,6 +70,8 @@ class DataPrep(DemModel):
             n_sample = int(np.round(m.dimensions.x / self.new_shape[1] * m.dimensions.y / self.new_shape[0]).value)
             # Reproject map to common WCS
             m = self.reproject_map(m, ref_frame)
+            # Convolve with PSF
+            m = self.convolve_with_psf(m)
             # Compute uncertainty
             error = self.compute_uncertainty(m, n_sample)
             # Build cube
@@ -91,15 +97,21 @@ class DataPrep(DemModel):
             # exposure times to account for over exposure in images where the exposure time is too short.
             smap.meta['BUNIT'] = 'DN/s'
         return smap
-            
+
     @property
     def new_shape(self):
-         # It doesn't really matter what this is as long as we include the full disk
-        return (450, 450)
+        # NOTE: calculated to include the full-disk from 1 AU
+        extent = 2500 * u.arcsec
+        return tuple(np.ceil((extent / self.new_scale).to_value('pix')).astype(int))
 
     @property
     def new_scale(self):
-        return u.Quantity([5, 5], 'arcsec / pix')
+        return u.Quantity([6, 6], 'arcsec / pix')
+
+    @property
+    def psf_width(self) -> u.pix:
+        psf_fwhm = 40 * u.arcsec
+        return psf_fwhm * gaussian_fwhm_to_sigma / self.new_scale
 
     def compute_uncertainty(self, smap, n_sample):
         if 'AIA' in smap.instrument and self.use_aia_errors:
@@ -156,13 +168,25 @@ class DataPrep(DemModel):
             _smap = smap.reproject_to(astropy.wcs.WCS(new_header),
                                       algorithm='adaptive',
                                       conserve_flux=self.conserve_flux,
-                                      boundary_mode='strict', 
+                                      boundary_mode='strict',
                                       kernel='Gaussian')
         # NOTE: we manually rebuild the Map in order to preserve the metadata and to also fill in
-        # the missing values 
+        # the missing values
         new_data = _smap.data
         new_data[np.isnan(new_data)] = np.nanmin(new_data)
         return sunpy.map.Map(new_data, new_header)
+
+    def convolve_with_psf(self, smap):
+        """
+        Perform a simple convolution with a Gaussian kernel
+        """
+        if self.include_psf_blur:
+            # PSF width is specified in order (x-like, y-like) but
+            # gaussian_filter expects array index ordering
+            w = self.psf_width.to_value('pixel')[::-1]
+            return smap._new_instance(gaussian_filter(smap.data, w), smap.meta)
+        else:
+            return smap
 
 
 class DataQuery(DataPrep):
