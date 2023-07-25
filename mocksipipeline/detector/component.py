@@ -9,7 +9,9 @@ import numpy as np
 from overlappy.reproject import reproject_to_overlappogram
 from overlappy.util import strided_array
 
-from mocksipipeline.detector.response import convolve_with_response, SpectrogramChannel, Channel
+from mocksipipeline.detector.response import (convolve_with_response,
+                                              get_all_dispersed_channels,
+                                              get_all_filtergram_channels)
 
 __all__ = [
     'DetectorComponent',
@@ -22,7 +24,7 @@ __all__ = [
 class DetectorComponent:
 
     @u.quantity_input
-    def __init__(self, channel, roll_angle=-90*u.deg, dispersion_angle=0*u.deg):
+    def __init__(self, channel, roll_angle=90*u.deg, dispersion_angle=0*u.deg):
         self.channel = channel
         self.roll_angle = roll_angle
         self.dispersion_angle = dispersion_angle
@@ -63,15 +65,10 @@ class DispersedComponent:
         if channel_kwargs is None:
             channel_kwargs = {}
         components = []
-        for order in self.spectral_orders:
-            channel = SpectrogramChannel(order, **channel_kwargs)
+        for channel in get_all_dispersed_channels(**channel_kwargs):
             component = DetectorComponent(channel, **kwargs)
             components.append(component)
         self.components = components
-
-    @property
-    def spectral_orders(self):
-        return [-4, -3, -2, -1, 0, 1, 2, 3, 4]
 
     def compute(self, spectral_cube, **kwargs):
         results = {}
@@ -86,15 +83,10 @@ class FiltergramComponent:
         if channel_kwargs is None:
             channel_kwargs = {}
         components = []
-        for name in self.filtergram_names:
-            channel = Channel(name, **channel_kwargs)
+        for channel in get_all_filtergram_channels(**channel_kwargs):
             component = DetectorComponent(channel, **kwargs)
             components.append(component)
         self.components = components
-
-    @property
-    def filtergram_names(self):
-        return [f'filtergram_{i}' for i in range(1, 5)]
 
     def compute(self, spectral_cube, **kwargs):
         results = {}

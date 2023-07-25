@@ -23,6 +23,8 @@ __all__ = [
     'Channel',
     'SpectrogramChannel',
     'convolve_with_response',
+    'get_all_filtergram_channels',
+    'get_all_dispersed_channels',
 ]
 
 
@@ -124,6 +126,18 @@ class Channel:
         self.name = name
         self.filters = filters
         self.full_detector = full_detector
+
+    def __repr__(self):
+        return f"""MOXSI Detector Channel--{self.name}
+-----------------------------------
+Spectral order: {self.spectral_order}
+Filter: {self.filter_label}
+Detector dimensions: {self.detector_shape}
+Wavelength range: [{self.wavelength[0]}, {self.wavelength[-1]}]
+Spectral resolution: {self.spectral_resolution}
+Spatial resolution: {self.resolution}
+Reference pixel: {self.reference_pixel}
+"""
 
     @staticmethod
     def _read_genx_instrument_data(name, instrument_file=None):
@@ -348,11 +362,10 @@ class Channel:
         wave_response = self.effective_area * self.electron_per_photon * self.camera_gain
         return np.where(self._energy_is_inf, 0*u.Unit('cm2 ct /ph'), wave_response)
 
-    def get_wcs(self, observer, roll_angle=-90*u.deg, dispersion_angle=0*u.deg):
+    def get_wcs(self, observer, roll_angle=90*u.deg, dispersion_angle=0*u.deg):
         pc_matrix = pcij_matrix(roll_angle,
                                 dispersion_angle,
-                                order=self.spectral_order,
-                                dispersion_axis=0)
+                                order=self.spectral_order)
         return overlappogram_fits_wcs(
             self.detector_shape,
             self.wavelength,
@@ -450,3 +463,13 @@ class SpectrogramChannel(Channel):
         tab.rename_column('ENERGY', 'energy')
         tab['wavelength'] = (const.h * const.c / tab['energy']).to('Angstrom')
         return tab
+
+
+def get_all_filtergram_channels(**kwargs):
+    filtergram_names = [f'filtergram_{i}' for i in range(1, 5)]
+    return [Channel(name, **kwargs) for name in filtergram_names]
+
+
+def get_all_dispersed_channels(**kwargs):
+    spectral_orders = [-4, -3, -2, -1, 0, 1, 2, 3, 4]
+    return [SpectrogramChannel(order, **kwargs)for order in spectral_orders]
