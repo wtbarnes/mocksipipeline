@@ -4,11 +4,12 @@ Functions for building the response matrix
 from astropy.coordinates import SkyCoord
 import astropy.units as u
 import astropy.wcs
+import distributed
 import numpy as np
-import ndcube
 import sunpy.map
 from sunpy.coordinates import Helioprojective, get_earth
 from scipy.interpolate import interp1d
+import xarray
 
 from synthesizAR.atomic.idl import spectrum_to_cube
 
@@ -38,7 +39,7 @@ def compute_effective_spectra(spectra, channel):
     return spectrum_to_cube(spectra_eff, channel.wavelength, spectra.axis_world_coords(0)[0])
 
 
-def compute_response_matrix(spectral_table, roll_angle, extent=2500*u.arcsec):
+def compute_response_matrix(spectral_table, extent=2500*u.arcsec):
     r"""
     Compute the MOXSI response matrix for a given spectra.
 
@@ -68,6 +69,11 @@ def compute_response_matrix(spectral_table, roll_angle, extent=2500*u.arcsec):
     .. math::
 
         R(p^\prime,p,T)\quad[\mathrm{DN}\,\mathrm{cm}^{5}\,\mathrm{s}^{-1}\,\mathrm{pix}^{-1}]
+
+    Parameters
+    ----------
+    spectral_table
+    extent
     """
     # Compute the effective spectra
     dispersed_channels = get_all_dispersed_channels()
@@ -78,18 +84,23 @@ def compute_response_matrix(spectral_table, roll_angle, extent=2500*u.arcsec):
     # pixel-to-pixel transformation and thus all of the celestial transforms should factor out.
     observer = get_earth('2000-01-01 00:00:00')
     hpc_frame = Helioprojective(observer=observer, obstime=observer.obstime)
-    ref_coord = SkyCoord(0, 0, unit='arcsec', frame=hpc_frame)
+    reference_coordinate = SkyCoord(0, 0, unit='arcsec', frame=hpc_frame)
+    # NOTE: I do not think it matters what this is. It can be anything. It just has to be the same
+    # for the primed and unprimed WCS
+    roll_angle = 0 * u.deg
     header = sunpy.map.make_fitswcs_header(shape,
-                                           ref_coord,
+                                           reference_coordinate,
+                                           reference_pixel=(np.array(shape[::-1]) - 1)/2*u.pix,
                                            scale=dispersed_channels[0].resolution,
                                            rotation_angle=roll_angle)
     wcs_prime = astropy.wcs.WCS(header=header)
-    wcs_dispersed = [chan.get_wcs(observer, roll_angle=roll_angle) for chan in dispersed_channels]
+    wcs_dispersed = [chan.get_wcs(observer, roll_angle=roll_angle, dispersion_angle=0*u.deg)
+                     for chan in dispersed_channels]
     # Find primed pixels (sometimes called "field angles"). This is a row in the primed FOV that is
     # aligned with the dispersion direction
     # We convert to world coordinates as an intermediate step in order to perform the world-to-pixel
     # transform later.
-    px_prime = np.arange(wcs_prime.array_shape[1])  # NOTE: assume dispersive axis along the x-axis
+    px_prime = np.arange(wcs_prime.array_shape[1])  # NOTE: assume dispersion along x-axis; gamma=0
     py_prime = (wcs_prime.array_shape[0] - 1)/2
     coord_prime = wcs_prime.pixel_to_world(px_prime, py_prime)
     # Compute response matrix
@@ -100,16 +111,31 @@ def compute_response_matrix(spectral_table, roll_angle, extent=2500*u.arcsec):
                              spectra_eff[0].data.shape[:1] +
                              (len(dispersed_channels),))
     response_matrix = np.zeros(response_matrix_shape)
+    # Connect to Dask cluster
+    client = distributed.get_client()
     for i_order, (chan, wcs_d) in enumerate(zip(dispersed_channels, wcs_dispersed)):
-        for i_wave, wave in enumerate(chan.wavelength):
-            _, _, i_pix = wcs_d.world_to_array_index(coord_prime, wave)
-            i_pix = np.array(i_pix)
+        pixel_indices = client.gather(
+                            client.map(lambda x: np.array(wcs_d.world_to_array_index(coord_prime, x)[2]),
+                                       chan.wavelength)
+                        )
+        for i_wave, i_pix in enumerate(pixel_indices):
             in_bounds = np.where(np.logical_and(i_pix >= 0, i_pix < response_matrix.shape[1]))
             # NOTE: indexing this way assumes that channel.wavelength and
             # wavelength axis of the effective spectra are aligned!
             response_matrix[px_prime[in_bounds], i_pix[in_bounds], :, i_order] += spectra_eff[i_order].data[:, i_wave]
 
-    return response_matrix
+    return xarray.DataArray(
+        response_matrix,
+        dims=['pixel_fov', 'pixel_detector', 'log_temperature', 'spectral_order'],
+        coords={
+            'log_temperature': np.log10(spectral_table.axis_world_coords(0)[0].to_value('K')),
+            'spectral_order': [chan.spectral_order for chan in dispersed_channels],
+        },
+        attrs={
+            'unit': spectra_eff[0].unit.to_string(format='fits'),
+            **spectral_table.meta,
+        },
+    )
 
 
 def write_response_matrix(response_matrix, filename):
