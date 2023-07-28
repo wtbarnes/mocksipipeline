@@ -124,6 +124,7 @@ class Channel:
 
     def __init__(self, name, filters=None, full_detector=True):
         self.name = name
+        self.xrt_table_name = 'Chantler'  # Intentially hardcoding this for now
         self.filters = filters
         self.full_detector = full_detector
 
@@ -133,7 +134,7 @@ class Channel:
 Spectral order: {self.spectral_order}
 Filter: {self.filter_label}
 Detector dimensions: {self.detector_shape}
-Wavelength range: [{self.wavelength[0]}, {self.wavelength[-1]}]
+Wavelength range: [{self.wavelength_min}, {self.wavelength_max}]
 Spectral resolution: {self.spectral_resolution}
 Spatial resolution: {self.resolution}
 Reference pixel: {self.reference_pixel}
@@ -157,12 +158,12 @@ Reference pixel: {self.reference_pixel}
         polymide = ThinFilmFilter(elements=['C', 'H', 'N', 'O'],
                                   quantities=[22, 10, 2, 5],
                                   density=1.43*u.g/u.cm**3,
-                                  thickness=1*u.micron, xrt_table='Chantler')
-        aluminum = ThinFilmFilter(elements='Al', thickness=150*u.nm, xrt_table='Chantler')
+                                  thickness=1*u.micron, xrt_table=self.xrt_table_name)
+        aluminum = ThinFilmFilter(elements='Al', thickness=150*u.nm, xrt_table=self.xrt_table_name)
         return {
-            'filtergram_1': ThinFilmFilter('Be', thickness=8*u.micron, xrt_table='Chantler'),
-            'filtergram_2': ThinFilmFilter('Be', thickness=30*u.micron, xrt_table='Chantler'),
-            'filtergram_3': ThinFilmFilter('Be', thickness=350*u.micron, xrt_table='Chantler'),
+            'filtergram_1': ThinFilmFilter('Be', thickness=8*u.micron, xrt_table=self.xrt_table_name),
+            'filtergram_2': ThinFilmFilter('Be', thickness=30*u.micron, xrt_table=self.xrt_table_name),
+            'filtergram_3': ThinFilmFilter('Be', thickness=350*u.micron, xrt_table=self.xrt_table_name),
             'filtergram_4': [polymide, aluminum],
         }
 
@@ -253,16 +254,28 @@ Reference pixel: {self.reference_pixel}
     @property
     @u.quantity_input
     def wavelength(self) -> u.angstrom:
-        # dispersion must start at 0
-        wave_min = 0 * u.angstrom
+        # NOTE: The resolution of the wavelength array is adjusted according to the 
+        # spectral order so that when reprojecting, we do not have gaps in the spectra
+        # as the wavelength array gets stretched across the detector
+        delta_wave = self.spectral_resolution*u.pix
+        delta_wave /= 2 * (1 if self.spectral_order == 0 else np.fabs(self.spectral_order))
+        return np.arange(
+            self.wavelength_min.to_value('AA'),
+            (self.wavelength_max + delta_wave).to_value('AA'),
+            delta_wave.to_value('AA'),
+        ) * u.angstrom
+
+    @property
+    @u.quantity_input
+    def wavelength_min(self) -> u.Angstrom:
+        return 0 * u.Angstrom  # dispersion must start at 0
+
+    @property
+    @u.quantity_input
+    def wavelength_max(self) -> u.Angstrom:
         # this is the maximum wavelength at which emission from
         # the far limb of the sun will still fall on the detector
-        wave_max = 90 * u.angstrom
-        return np.arange(
-            wave_min.to_value('AA'),
-            (wave_max + self.spectral_resolution*u.pix).to_value('AA'),
-            (self.spectral_resolution*u.pix).to_value('AA'),
-        ) * u.angstrom
+        return 90 * u.Angstrom
 
     @property
     @u.quantity_input
@@ -270,12 +283,21 @@ Reference pixel: {self.reference_pixel}
         return const.h * const.c / self.wavelength
 
     @property
-    def _energy_is_inf(self):
+    def _energy_out_of_bounds(self):
         # NOTE: This is needed becuase the functions in xrt called
         # by ThinFilmFilter cannot handle infinite energy but handle
         # NaN fine. The transmissivities at these infinities is just
         # set to 0. This is primarily so that we can handle 0 wavelength.
-        return np.isinf(self.energy)
+        # Additionally, there are energy limits imposed by the data used to
+        # compute the transmissivity of the materials and thus the energy is
+        # set to NaN here as well.
+        energy_bounds = {
+            'Henke': u.Quantity([10*u.eV, 30*u.keV]),
+            'Chantler': u.Quantity([11*u.eV, 405*u.keV]),
+            'BrCo': u.Quantity([30*u.eV, 509*u.keV]),
+        }
+        return np.logical_or(self.energy < energy_bounds[self.xrt_table_name][0],
+                             self.energy > energy_bounds[self.xrt_table_name][1])
 
     @property
     def _energy_no_inf(self):
@@ -283,7 +305,7 @@ Reference pixel: {self.reference_pixel}
         # by ThinFilmFilter cannot handle infinite energy but handle
         # NaN fine. The transmissivities at these infinities is just
         # set to 0. This is primarily so that we can handle 0 wavelength.
-        return np.where(self._energy_is_inf, np.nan, self.energy)
+        return np.where(self._energy_out_of_bounds, np.nan, self.energy)
 
     @property
     @u.quantity_input
@@ -314,7 +336,7 @@ Reference pixel: {self.reference_pixel}
     def detector_efficiency(self) -> u.dimensionless_unscaled:
         # NOTE: this thickness was determined by comparisons between the detector efficiency
         # originally in the genx files from the origional proposal.
-        si = ThinFilmFilter('Si', thickness=33*u.micron, xrt_table='Chantler')
+        si = ThinFilmFilter('Si', thickness=33*u.micron, xrt_table=self.xrt_table_name)
         return 1.0 - si.transmissivity(self._energy_no_inf)
 
     @property
@@ -324,7 +346,7 @@ Reference pixel: {self.reference_pixel}
                           self.filter_transmission *
                           self.grating_efficiency *
                           self.detector_efficiency)
-        return np.where(self._energy_is_inf, 0*u.cm**2, effective_area)
+        return np.where(self._energy_out_of_bounds, 0*u.cm**2, effective_area)
 
     @property
     @u.quantity_input
@@ -360,15 +382,22 @@ Reference pixel: {self.reference_pixel}
     @u.quantity_input
     def wavelength_response(self) -> u.Unit('cm^2 ct / photon'):
         wave_response = self.effective_area * self.electron_per_photon * self.camera_gain
-        return np.where(self._energy_is_inf, 0*u.Unit('cm2 ct /ph'), wave_response)
+        return np.where(self._energy_out_of_bounds, 0*u.Unit('cm2 ct /ph'), wave_response)
 
     def get_wcs(self, observer, roll_angle=90*u.deg, dispersion_angle=0*u.deg):
         pc_matrix = pcij_matrix(roll_angle,
                                 dispersion_angle,
                                 order=self.spectral_order)
+        # NOTE: This is calculated explicitly here because the wavelength array for a
+        # particular channel is not necessarily have a resolution equal to that of
+        # the spectral plate scale.
+        # NOTE: Calculated based on the information in the numpy docs for arange
+        # https://numpy.org/doc/stable/reference/generated/numpy.arange.html
+        wave_step = self.spectral_resolution * u.pix
+        wave_interval = self.wavelength_max - self.wavelength_min
+        wave_shape = (np.ceil((wave_interval / wave_step).decompose().value).astype(int),)
         return overlappogram_fits_wcs(
-            self.detector_shape,
-            self.wavelength,
+            wave_shape+self.detector_shape,
             (self.resolution[0], self.resolution[1], self.spectral_resolution),
             reference_pixel=self.reference_pixel,
             reference_coord=(0*u.arcsec, 0*u.arcsec, 0*u.angstrom),
@@ -400,7 +429,7 @@ class SpectrogramChannel(Channel):
     @property
     def _default_filters(self):
         return {
-            'dispersed_image': ThinFilmFilter(elements='Al', thickness=150*u.nm, xrt_table='Chantler'),
+            'dispersed_image': ThinFilmFilter(elements='Al', thickness=150*u.nm, xrt_table=self.xrt_table_name),
         }
 
     @property
