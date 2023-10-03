@@ -53,11 +53,11 @@ def convolve_with_response(cube, channel, electrons=True, include_gain=False):
         response *= channel.electron_per_photon
         if include_gain:
             response *= channel.camera_gain
-    # Multiply by the spatial and spectral plate scale (factor of sr)
-    # NOTE: does it make sense to do this before interpolating to the *exact*
-    # instrument resolution?
+    # Multiply by the spatial plate scale (factor of sr)
     response *= channel.plate_scale
-    response *= channel.spectral_resolution * (1 * u.pix)
+    # NOTE: multiplying by the spacing of the wavelength array as this is
+    # not generally the same as the spectral plate scale.
+    response *= np.gradient(channel.wavelength)
 
     # Interpolate spectral cube to the wavelength array of the channel
     # FIXME: In cases where we are using a binned spectra,
@@ -254,7 +254,7 @@ Reference pixel: {self.reference_pixel}
     @property
     @u.quantity_input
     def wavelength(self) -> u.angstrom:
-        # NOTE: The resolution of the wavelength array is adjusted according to the 
+        # NOTE: The resolution of the wavelength array is adjusted according to the
         # spectral order so that when reprojecting, we do not have gaps in the spectra
         # as the wavelength array gets stretched across the detector
         delta_wave = self.spectral_resolution*u.pix
