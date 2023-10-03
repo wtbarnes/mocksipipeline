@@ -106,7 +106,7 @@ class DataPrep(DemModel):
 
     @property
     def new_scale(self):
-        return u.Quantity([6, 6], 'arcsec / pix')
+        return u.Quantity([7.4, 7.4], 'arcsec / pix')
 
     @property
     def psf_width(self) -> u.pix:
