@@ -6,7 +6,12 @@ import warnings
 import ndcube
 from astropy.utils.data import get_pkg_data_filenames
 
-__all__ = ['SpectralModel', 'get_spectral_tables']
+__all__ = ['calculate_intensity', 'SpectralModel', 'get_spectral_tables']
+
+
+def calculate_intensity(em, spectral_table, header):
+    from synthesizAR.instruments import InstrumentDEM
+    return InstrumentDEM.calculate_intensity(em, spectral_table, header)
 
 
 class SpectralModel:
@@ -31,12 +36,7 @@ class SpectralModel:
         # We can stop passing this in separately if we can figure out a sensible way
         # to get this out of our DEM cube. This is not currently possible due to the
         # fact that our DEM WCS is a gwcs.
-        from synthesizAR.instruments import InstrumentDEM
-        return InstrumentDEM.calculate_intensity(
-            dem_cube,
-            self.spectral_table,
-            dict(celestial_wcs.to_header())
-        )
+        return calculate_intensity(dem_cube, self.spectral_table, dict(celestial_wcs.to_header()))
 
 
 def get_spectral_tables(pattern='', sum_tables=False):
