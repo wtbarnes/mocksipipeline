@@ -13,18 +13,37 @@ from overlappy.util import strided_array
 __all__ = ['read_data_cube', 'stack_components']
 
 
-def read_data_cube(filename, hdu=0):
+def read_data_cube(filename, hdu=0, use_fitsio=False):
     """
     Helper function for reading in data cubes from a FITS
     file to an NDCube
+
+    Parameters
+    ----------
+    filename: `str` or path-like
+    hdu: `int`
+    use_fitsio: `bool`
+        Use `fitsio` package for reading files. Can be very
+        useful for reading compressed FITS files very quickly.
     """
-    with astropy.io.fits.open(filename) as hdul:
-        data = hdul[hdu].data
-        header = hdul[hdu].header
-        header.pop('KEYCOMMENTS', None)
-        wcs = WCS(header=header)
-        unit = header.get('BUNIT', None)
-        spec_cube = NDCube(data, wcs=wcs, meta=header, unit=unit)
+    if use_fitsio:
+        import fitsio
+        data, header = fitsio.read(filename, ext=hdu, header=True)
+        header = dict(header)
+        # NOTE: For some reason, the array shape in the header is
+        # incorrect so need to reset it.
+        for i, shape in enumerate(data.shape[::-1]):
+            header[f'NAXIS{i+1}'] = shape
+    else:
+        with astropy.io.fits.open(filename) as hdul:
+            data = hdul[hdu].data
+            header = hdul[hdu].header
+
+    header.pop('KEYCOMMENTS', None)
+    wcs = WCS(header=header)
+    unit = header.get('BUNIT', None)
+    spec_cube = NDCube(data, wcs=wcs, meta=header, unit=unit)
+
     return spec_cube
 
 
