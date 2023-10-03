@@ -18,8 +18,6 @@ from mocksipipeline.detector.response import get_all_dispersed_channels
 __all__ = [
     'compute_effective_spectra',
     'compute_response_matrix',
-    'write_response_matrix',
-    'read_response_matrix',
 ]
 
 
@@ -136,11 +134,3 @@ def compute_response_matrix(spectral_table, extent=2500*u.arcsec):
             **spectral_table.meta,
         },
     )
-
-
-def write_response_matrix(response_matrix, filename):
-    ...
-
-
-def read_response_matrix(filename):
-    ...
