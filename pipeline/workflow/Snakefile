@@ -1,0 +1,117 @@
+import pathlib
+
+configfile: "../config/config.yml"
+
+root_dir = pathlib.Path(config['root_dir']) / f'{config["obstime"]}_{config["spectral_table"]}'
+
+XRT_FILTERS = ['Be-thin:Open',]
+AIA_FILTERS = ['94', '131', '171', '193', '211', '335']
+FILTERGRAM_NAMES = ['filtergram-1', 'filtergram-2', 'filtergram-3', 'filtergram-4']
+SPECTROGRAM_NAMES = ['spectrogram_1', 'specttrogram_2']
+SPECTRAL_ORDERS = [-4,-3,-2,-1,0,1,2,3,4]
+
+rule sum_components:
+    input:
+        expand(root_dir / 'detector_images' / '{channel}_0.fits', channel=FILTERGRAM_NAMES),
+        expand(root_dir / 'detector_images' / '{channel}_{order}.fits', channel=SPECTROGRAM_NAMES, order=SPECTRAL_ORDERS)
+    output:
+        root_dir / 'detector_images' / 'all_components.fits'
+    script:
+        "sum_detector_components.py"
+
+rule calculate_detector_images:
+    input:
+        root_dir / 'intensity_cubes' / '{channel}_{order}.fits'
+    output:
+        root_dir / 'detector_images' / '{channel}_{order}.fits'
+    script:
+        "project_intensity_cubes.fits"
+
+rule calculate_instrument_cube:
+    input:
+        root_dir / 'spectral_cube.fits'
+    output:
+        root_dir / 'intensity_cubes' / '{channel}_{order}.fits'
+    script:
+        "calculate_instrument_cube.py"
+
+rule calculate_spectral_cube:
+    input:
+        root_dir / 'dem_cube.nc'
+    output:
+        root_dir / 'spectral_cube.fits'
+    script:
+        "scripts/calculate_spectral_cube.py"
+
+rule calculate_dem:
+    input:
+        expand(root_dir / 'level_2' / 'xrt_{filter}.fits', filter=XRT_FILTERS),
+        expand(root_dir / 'level_2' / 'aia_{filter}.fits', filter=AIA_FILTERS),
+        expand(root_dir / 'uncertainty' / 'xrt_{filter}.fits', filter=XRT_FILTERS),
+        expand(root_dir / 'uncertainty' / 'aia_{filter}.fits', filter=AIA_FILTERS)
+    output:
+        root_dir / 'dem_cube.nc'
+    script:
+        "scripts/calculate_dem.py"
+
+rule calculate_uncertainty:
+    input:
+        root_dir / 'level_1' / '{instrument}_{filter}.fits',
+        root_dir / 'level_2' / '{instrument}_{filter}.fits'
+    output:
+        root_dir / 'uncertainty' / '{instrument}_{filter}.fits'
+    script:
+        "scripts/calculate_uncertainty.py"
+
+rule prep_data:
+    input:
+        root_dir / 'level_1' / '{instrument}_{filter}.fits',
+        root_dir / 'common_coordinate_frame.asdf',
+        root_dir / 'aia_pointing_table.asdf',
+        root_dir / 'aia_correction_table.asdf'
+    output:
+        root_dir / 'level_2' / '{instrument}_{filter}.fits'
+    script:
+        "scripts/prep_data.py"
+
+rule download_pointing_table:
+    output:
+        root_dir / 'aia_pointing_table.asdf'
+    run:
+        from aiapy.calibrate.util import get_pointing_table
+        import astropy.time
+        import astropy.units as u
+        obstime = astropy.time.Time(config["obstime"])
+        tab = get_pointing_table(obstime-6*u.h, obstime+6*u.h)
+        tab.meta.clear()  # Cannot serialize JSOCClient object
+        tab.write(output[0])
+
+rule download_correction_table:
+    output:
+        root_dir / 'aia_correction_table.asdf'
+    run:
+        from aiapy.calibrate.util import get_correction_table
+        tab = get_correction_table()
+        tab.meta.clear()  # Cannot serialize JSOCClient object
+        tab.write(output[0])
+
+rule build_common_coordinate_frame:
+    output:
+        root_dir / 'common_coordinate_frame.asdf'
+    run:
+        import asdf
+        import astropy.time
+        from sunpy.coordinates import get_earth, Helioprojective
+        obstime = astropy.time.Time(config["obstime"])
+        frame = Helioprojective(observer=get_earth(obstime), obstime=obstime)
+        with asdf.AsdfFile({'frame': frame}) as af:
+            af.write_to(output[0])
+
+rule query_data:
+    output:
+        root_dir / 'level_1' / '{instrument}_{filter}.fits'
+    params:
+        instrument=lambda wildcards: wildcards.instrument,
+        filter=lambda wildcards: wildcards.filter
+    script:
+        "scripts/download_data.py"
