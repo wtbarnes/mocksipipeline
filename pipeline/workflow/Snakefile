@@ -6,9 +6,27 @@ root_dir = pathlib.Path(config['root_dir']) / f'{config["obstime"]}_{config["spe
 
 XRT_FILTERS = ['Be-thin:Open',]
 AIA_FILTERS = ['94', '131', '171', '193', '211', '335']
-FILTERGRAM_NAMES = ['filtergram-1', 'filtergram-2', 'filtergram-3', 'filtergram-4']
-SPECTROGRAM_NAMES = ['spectrogram_1', 'specttrogram_2']
-SPECTRAL_ORDERS = [-4,-3,-2,-1,0,1,2,3,4]
+FILTERGRAM_NAMES = [
+    'filtergram_1',
+    'filtergram_2',
+    'filtergram_3',
+    'filtergram_4',
+]
+SPECTROGRAM_NAMES = [
+    'spectrogram_1',
+    # 'specttrogram_2',  # TODO: Implement rectangular spectrogram
+]
+SPECTRAL_ORDERS = [
+    -4,
+    -3,
+    -2,
+    -1,
+    0,
+    1,
+    2,
+    3,
+    4,
+]
 
 rule sum_components:
     input:
@@ -17,23 +35,18 @@ rule sum_components:
     output:
         root_dir / 'detector_images' / 'all_components.fits'
     script:
-        "sum_detector_components.py"
+        "scripts/sum_detector_components.py"
 
 rule calculate_detector_images:
     input:
-        root_dir / 'intensity_cubes' / '{channel}_{order}.fits'
-    output:
-        root_dir / 'detector_images' / '{channel}_{order}.fits'
-    script:
-        "project_intensity_cubes.fits"
-
-rule calculate_instrument_cube:
-    input:
         root_dir / 'spectral_cube.fits'
     output:
-        root_dir / 'intensity_cubes' / '{channel}_{order}.fits'
+        root_dir / 'detector_images' / '{channel}_{order}.fits'
+    params:
+        channel=lambda wildcards: wildcards.channel,
+        order=lambda wildcards: wildcards.order
     script:
-        "calculate_instrument_cube.py"
+        "scripts/project_intensity_cubes.py"
 
 rule calculate_spectral_cube:
     input:
