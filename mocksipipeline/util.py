@@ -110,16 +110,11 @@ def read_cube_with_xarray(filename, axis_name, physical_type):
         The physical type of `axis_name` as denoted by the IVOA designation.
     """
     cube_xa = xarray.open_dataarray(filename)
-    # Make quantity
     meta = cube_xa.attrs
     data = u.Quantity(cube_xa.data, meta.pop('unit'))
-    # Build celestial WCS from attributes
     celestial_wcs = astropy.wcs.WCS(header=meta)
-    # Get temperature axis
     axis_array = u.Quantity(cube_xa[axis_name].data, cube_xa[axis_name].attrs.get('unit'))
-    # Build combined WCS with temperature axis
     combined_wcs = extend_celestial_wcs(celestial_wcs, axis_array, axis_name, physical_type)
-    # Build NDCube
     return NDCube(data, wcs=combined_wcs, meta=meta)
 
 

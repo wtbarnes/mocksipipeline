@@ -11,9 +11,7 @@ from ndcube.extra_coords import QuantityTableCoordinate
 import numpy as np
 from overlappy.reproject import reproject_to_overlappogram
 from overlappy.util import strided_array
-import tqdm
 
-from mocksipipeline.physics.spectral import calculate_intensity
 from mocksipipeline.detector.response import (convolve_with_response,
                                               get_all_dispersed_channels,
                                               get_all_filtergram_channels)
@@ -159,14 +157,14 @@ def sample_and_remap_spectral_cube(spec_cube,
                          unit=unit)
 
 
-def compute_flux_point_source(em, spectral_table, location, blur=None, **kwargs):
+def compute_flux_point_source(intensity, location, blur=None, channels=None, **kwargs):
     """
     Compute flux for each channel from a point source.
     """
     electrons = kwargs.pop('electrons', False)
     include_gain = kwargs.pop('include_gain', False)
-    channels = get_all_dispersed_channels()[5:]
-    intensity = calculate_intensity(em, spectral_table, {})
+    if channels is None:
+        channels = get_all_dispersed_channels()[5:]
     pix_grid, _, _ = channels[0].get_wcs(location.observer, **kwargs).world_to_pixel(location, channels[0].wavelength)
     flux_total = np.zeros(pix_grid.shape)
     cube_list = []
@@ -176,7 +174,7 @@ def compute_flux_point_source(em, spectral_table, location, blur=None, **kwargs)
         _pix_grid, _, _ = channel.get_wcs(location.observer, **kwargs).world_to_pixel(location, channel.wavelength)
         flux_total += np.interp(pix_grid, _pix_grid, flux.data)
         if blur:
-            flux = ndcube.NDCube(blur_spectra(flux.data, blur, channel), wcs=flux.wcs, meta=flux.meta, unit=flux.unit)
+            flux = blur_spectra(flux, blur, channel)
         cube_list.append((f'order_{channel.spectral_order}', flux))
 
     flux_total = ndcube.NDCube(flux_total, wcs=cube_list[0][1].wcs, unit=flux.unit)
@@ -200,7 +198,8 @@ def blur_spectra(flux, blur, channel):
     std = blur / np.fabs(channel.spectral_order) * gaussian_fwhm_to_sigma
     std_eff = (std / channel.spectral_resolution).to_value('pix')
     kernel = Gaussian1DKernel(std_eff)
-    return convolve(flux.data, kernel)
+    data = convolve(flux.data, kernel)
+    return ndcube.NDCube(data, wcs=flux.wcs, unit=flux.unit, meta=flux.meta)
 
 
 def dem_table_to_ndcube(dem_table):
