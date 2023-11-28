@@ -145,9 +145,15 @@ def sample_and_remap_spectral_cube(spec_cube,
         unit = 'ct'
     # Map counts to detector coordinates
     overlap_wcs = channel.get_wcs(observer, **wcs_kwargs)
-    idx_nonzero_overlap = pixel_to_pixel(instr_cube.wcs, overlap_wcs, *idx_nonzero[::-1])
     n_rows = channel.detector_shape[0]
     n_cols = channel.detector_shape[1]
+    # NOTE: pixel-to-pixel mapping cannot handle mapping an empty list so have to special
+    # case when we have only zeros in our sample; this can happen in 1 s exposures, particularly
+    # at the higher spectral orders.
+    if all([idx.size == 0 for idx in idx_nonzero]):
+        idx_nonzero_overlap = [[], []]
+    else:
+        idx_nonzero_overlap = pixel_to_pixel(instr_cube.wcs, overlap_wcs, *idx_nonzero[::-1])
     hist, _, _ = np.histogram2d(idx_nonzero_overlap[1], idx_nonzero_overlap[0],
                                 bins=(n_rows, n_cols),
                                 range=([-.5, n_rows-.5], [-.5, n_cols-.5]),
