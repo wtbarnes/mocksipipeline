@@ -7,6 +7,7 @@ import astropy.io.fits
 import astropy.units as u
 from astropy.wcs import WCS
 from ndcube import NDCube
+from ndcube.extra_coords import QuantityTableCoordinate
 import numpy as np
 import xarray
 
@@ -19,6 +20,7 @@ __all__ = [
     'stack_components',
     'read_cube_with_xarray',
     'write_cube_with_xarray',
+    'dem_table_to_ndcube',
 ]
 
 
@@ -147,3 +149,21 @@ def write_cube_with_xarray(cube, axis_name, celestial_wcs, filename):
         attrs={**wcs_keys, 'unit': cube.unit.to_string()}
     )
     cube_xa.to_netcdf(filename)
+
+
+def dem_table_to_ndcube(dem_table):
+    """
+    Parse an astropy table of DEM information into an NDCube
+
+    Args:
+        dem_table (_type_): _description_
+
+    Returns:
+        _type_: _description_
+    """
+    temperature = dem_table['temperature_bin_center']
+    em = dem_table['dem']*np.gradient(temperature, edge_order=2)
+    tab_coord = QuantityTableCoordinate(temperature,
+                                        names='temperature',
+                                        physical_types='phys.temperature')
+    return NDCube(em, wcs=tab_coord.wcs, meta=dem_table.meta)

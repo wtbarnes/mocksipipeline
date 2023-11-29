@@ -1,104 +1,24 @@
 """
 Classes for computing wavelength response functions for MOXSI
 """
-import copy
-
 import numpy as np
 import astropy.units as u
 import astropy.table
 from astropy.utils.data import get_pkg_data_filename
-from ndcube import NDCube
-from ndcube.extra_coords import QuantityTableCoordinate
 from scipy.interpolate import interp1d
 from sunpy.util import MetaDict
 from sunpy.io.special import read_genx
 
 from overlappy.wcs import overlappogram_fits_wcs, pcij_matrix
-from synthesizAR.instruments.util import extend_celestial_wcs
 
 from mocksipipeline.detector.filter import ThinFilmFilter
 
 __all__ = [
     'Channel',
     'SpectrogramChannel',
-    'convolve_with_response',
     'get_all_filtergram_channels',
     'get_all_dispersed_channels',
 ]
-
-
-def convolve_with_response(cube, channel, electrons=True, include_gain=False):
-    """
-    Convolve spectral cube with wavelength response to convert spectra to instrument units.
-
-    Parameters
-    ----------
-    cube : `ndcube.NDCube`
-    channel : `Channel`
-    electrons : `bool`, optional
-        If True, include conversion factor from photons to electrons.
-    include_gain : `bool`, optional
-        If True, include conversion fractor from electrons to DN. Cannot be true
-        if `electrons` is False.
-
-    Return
-    ------
-    : `ndcube.NDCube`
-        Spectral cube in detector units convolved with instrument response
-    """
-    # Compute instrument response
-    response = channel.effective_area
-    if electrons:
-        response *= channel.electron_per_photon
-        if include_gain:
-            response *= channel.camera_gain
-    # Multiply by the spatial plate scale (factor of sr)
-    response *= channel.plate_scale
-    # NOTE: multiplying by the spacing of the wavelength array as this is
-    # not generally the same as the spectral plate scale.
-    response *= np.gradient(channel.wavelength)
-
-    # Interpolate spectral cube to the wavelength array of the channel
-    # FIXME: In cases where we are using a binned spectra,
-    # we should be *rebinning* the spectral cube, not just interpolating it.
-    # The spectra should be rebinned to the range and bin width of the
-    # instrument.
-    # NOTE: it is ok that our spectral cube is not necessarily guaranteed
-    # to be at the spectral plate scale of the instrument as we will reproject
-    # to the correct spectral plate scale at a later point in the pipeline
-    # NOTE: this is only ok if we are reprojecting the full cube to the full
-    # overlappogram in one go. With the per slice approach, the wavelength
-    # grids must be the same, i.e. the wavelength grid exposed by the channel
-    # will be the wavelength grid used by overlappogram in the wavelength axis
-    cube_wavelength = cube.axis_world_coords(0)[0].to_value('Angstrom', equivalencies=u.spectral())
-    f_response = interp1d(cube_wavelength,
-                          cube.data,
-                          axis=0,
-                          bounds_error=False,
-                          fill_value=0.0,)  # Response is 0 outside of the response range
-    data_interp = f_response(channel.wavelength.to_value('Angstrom'))
-    data_interp = (data_interp.T * response.to_value()).T
-
-    unit = cube.unit * response.unit
-    meta = copy.deepcopy(cube.meta)
-    meta['CHANNAME'] = channel.name
-    # Reset the units if they were in the metadata
-    meta.pop('BUNIT', None)
-
-    # Construct new WCS for the modified wavelength axis
-    # NOTE: When there is only one axis that corresponds to wavlength, then
-    # just dconstruct a new wavelength axis
-    if len(cube.data.shape) == 1:
-        new_wcs = QuantityTableCoordinate(channel.wavelength,
-                                          names='wavelength',
-                                          physical_types='em.wl').wcs
-    else:
-        new_wcs = extend_celestial_wcs(cube[0].wcs.low_level_wcs,
-                                       channel.wavelength,
-                                       'wavelength',
-                                       'em.wl')
-
-    return NDCube(data_interp, wcs=new_wcs, meta=meta, unit=unit)
 
 
 class Channel:
