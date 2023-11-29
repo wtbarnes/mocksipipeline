@@ -3,8 +3,8 @@ import astropy.units as u
 from overlappy.io import write_overlappogram
 
 from mocksipipeline.util import read_data_cube
+from mocksipipeline.detector import project_spectral_cube
 from mocksipipeline.detector.response import SpectrogramChannel, Channel
-from mocksipipeline.detector.component import sample_and_remap_spectral_cube
 
 
 if __name__ == '__main__':
@@ -24,10 +24,10 @@ if __name__ == '__main__':
     # Read in spectral cube
     spec_cube = read_data_cube(snakemake.input[0])
     # Remap spectral cube
-    det_cube = sample_and_remap_spectral_cube(spec_cube,
-                                              channel,
-                                              dt=dt,
-                                              interval=interval,
-                                              convert_to_dn=convert_to_dn)
+    det_cube = project_spectral_cube(spec_cube,
+                                     channel,
+                                     dt=dt,
+                                     interval=interval,
+                                     convert_to_dn=convert_to_dn)
     # Save to file
     write_overlappogram(det_cube, snakemake.output[0])

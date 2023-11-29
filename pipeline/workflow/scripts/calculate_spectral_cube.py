@@ -1,7 +1,7 @@
 import sunpy.io._fits as sunpy_fits
 
 from mocksipipeline.util import read_cube_with_xarray
-from mocksipipeline.physics.spectral import calculate_intensity, get_spectral_tables
+from mocksipipeline.spectral import calculate_intensity, get_spectral_tables
 
 
 if __name__ == '__main__':

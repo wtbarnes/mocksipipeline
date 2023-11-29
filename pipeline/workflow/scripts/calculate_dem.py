@@ -13,8 +13,7 @@ import xrtpy
 from sunkit_dem import Model, GenericModel
 
 from mocksipipeline.util import write_cube_with_xarray
-from mocksipipeline.physics.dem import compute_temperature_response
-from mocksipipeline.physics.spectral import get_spectral_tables
+from mocksipipeline.spectral import get_spectral_tables, compute_temperature_response
 
 
 def build_map_collection(map_list):
