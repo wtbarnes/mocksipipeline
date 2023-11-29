@@ -43,7 +43,7 @@ def get_spectral_tables(pattern='', sum_tables=False):
     spectral_tables = {}
     filenames = get_pkg_data_filenames(
         'data',
-        package='mocksipipeline.physics.spectral',
+        package='mocksipipeline.spectral',
         pattern=f'chianti-spectrum-{pattern}*.asdf'
     )
     for fname in filenames:
