@@ -3,40 +3,17 @@ Module for converting DEM to spectral cube
 """
 import warnings
 
-import ndcube
+import astropy.units as u
 from astropy.utils.data import get_pkg_data_filenames
+import numpy as np
+from scipy.interpolate import interp1d
 
-__all__ = ['calculate_intensity', 'SpectralModel', 'get_spectral_tables']
+__all__ = ['calculate_intensity', 'get_spectral_tables', 'compute_temperature_response']
 
 
 def calculate_intensity(em, spectral_table, header):
     from synthesizAR.instruments import InstrumentDEM
     return InstrumentDEM.calculate_intensity(em, spectral_table, header)
-
-
-class SpectralModel:
-
-    def __init__(self, spectral_table='sun_coronal_1992_feldman_ext_all', **kwargs):
-        self.spectral_table = spectral_table
-
-    @property
-    def spectral_table(self):
-        return self._spectral_table
-
-    @spectral_table.setter
-    def spectral_table(self, value):
-        if isinstance(value, ndcube.NDCube):
-            self._spectral_table = value
-        else:
-            spec_tables = get_spectral_tables()
-            self._spectral_table = spec_tables[value]
-
-    def run(self, dem_cube, celestial_wcs,):
-        # TODO: figure out how to get the celestial WCS from the DEM cube, even if our dem cube has a gwcs
-        # We can stop passing this in separately if we can figure out a sensible way
-        # to get this out of our DEM cube. This is not currently possible due to the
-        # fact that our DEM WCS is a gwcs.
-        return calculate_intensity(dem_cube, self.spectral_table, dict(celestial_wcs.to_header()))
 
 
 def get_spectral_tables(pattern='', sum_tables=False):
@@ -66,7 +43,7 @@ def get_spectral_tables(pattern='', sum_tables=False):
     spectral_tables = {}
     filenames = get_pkg_data_filenames(
         'data',
-        package='mocksipipeline.physics.spectral',
+        package='mocksipipeline.spectral',
         pattern=f'chianti-spectrum-{pattern}*.asdf'
     )
     for fname in filenames:
@@ -87,3 +64,36 @@ def get_spectral_tables(pattern='', sum_tables=False):
         return summed_spectral_table
     else:
         return spectral_tables
+
+
+def compute_temperature_response(spectra,
+                                 instrument_wavelength,
+                                 instrument_response,
+                                 return_temperature=False):
+    """
+    Generate a temperature response from a spectra and a wavelength response.
+
+    Parameters
+    ----------
+    spectra: `~ndcube.NDCube`
+        Isothermal spectra as a function of temperature and wavelength.
+    instrument_wavelength: `~astropy.units.Quantity`
+    instrument_response: `~astropy.units.Quantity`
+    """
+    # Interpolate response to spectra
+    spectra_wavelength = spectra.axis_world_coords(1)[0].to('Angstrom')
+    f_response = interp1d(instrument_wavelength.to_value(spectra_wavelength.unit),
+                          instrument_response.to_value(),
+                          axis=0,
+                          bounds_error=False,
+                          fill_value=0.0,)
+    spectra_response = u.Quantity(f_response(spectra_wavelength.value), instrument_response.unit)
+    # Integrate over wavelength
+    delta_wave = np.diff(spectra_wavelength)[0]  # It is assumed that this is uniform
+    spectra_data = u.Quantity(spectra.data, spectra.unit)
+    temperature_response = (spectra_data * spectra_response * delta_wave).sum(axis=1)
+    if return_temperature:
+        temperature = spectra.axis_world_coords(0)[0].to('K')
+        return temperature, temperature_response
+    else:
+        return temperature_response

@@ -24,7 +24,7 @@ fw2_name_to_index_mapping = {v:k for k,v in index_mapping_to_fw2_name.items()}
 
 
 class FilterWheel1(SimpleAttr):
-    
+
     def __init__(self, fw_1_name):
         """
         Names of the filters on filter wheel 1 and filter wheel 2
@@ -39,7 +39,7 @@ class FilterWheel1(SimpleAttr):
 
 
 class FilterWheel2(SimpleAttr):
-    
+
     def __init__(self, fw_2_name):
         """
         Names of the filters on filter wheel 1 and filter wheel 2
@@ -110,7 +110,7 @@ class XRTSynopticClient(GenericClient):
         # file
         q = super().search(*args, **kwargs)
         del_rows = []
-        for i,r in enumerate(q):
+        for i, r in enumerate(q):
             if r['url'] is None:
                 warnings.warn(f'No FITS file available for {r}. Dropping row.')
                 del_rows.append(i)

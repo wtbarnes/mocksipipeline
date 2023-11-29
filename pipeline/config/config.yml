@@ -1,0 +1,15 @@
+root_dir:
+obstime:
+obstime_window: 7200
+spectral_table: 'sun_coronal_1992_feldman_ext_all'
+plate_scale_x: 7.4  # in arcsec / pix
+plate_scale_y: 7.4  # in arcsec / pix
+full_disk_extent: 2500  # in arcsec
+percent_error: 20  # error estimate on input DEM images
+psf_fwhm: 40  # in arcsec
+log_t_left_edge: 5.5
+log_t_right_edge: 7.5
+delta_log_t: 0.1
+exposure_time: 1.0  # in s
+cadence: 3600  # in s
+convert_to_dn: True

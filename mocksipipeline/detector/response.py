@@ -1,104 +1,24 @@
 """
 Classes for computing wavelength response functions for MOXSI
 """
-import copy
-
 import numpy as np
 import astropy.units as u
-import astropy.constants as const
 import astropy.table
 from astropy.utils.data import get_pkg_data_filename
-from ndcube import NDCube
-from ndcube.extra_coords import QuantityTableCoordinate
 from scipy.interpolate import interp1d
 from sunpy.util import MetaDict
 from sunpy.io.special import read_genx
 
 from overlappy.wcs import overlappogram_fits_wcs, pcij_matrix
-from synthesizAR.instruments.util import extend_celestial_wcs
 
 from mocksipipeline.detector.filter import ThinFilmFilter
 
 __all__ = [
     'Channel',
     'SpectrogramChannel',
-    'convolve_with_response',
     'get_all_filtergram_channels',
     'get_all_dispersed_channels',
 ]
-
-
-def convolve_with_response(cube, channel, electrons=True, include_gain=False):
-    """
-    Convolve spectral cube with wavelength response to convert spectra to instrument units.
-
-    Parameters
-    ----------
-    cube : `ndcube.NDCube`
-    channel : `Channel`
-    electrons : `bool`, optional
-        If True, include conversion factor from photons to electrons.
-    include_gain : `bool`, optional
-        If True, include conversion fractor from electrons to DN. Cannot be true
-        if `electrons` is False.
-
-    Return
-    ------
-    : `ndcube.NDCube`
-        Spectral cube in detector units convolved with instrument response
-    """
-    # Compute instrument response
-    response = channel.effective_area
-    if electrons:
-        response *= channel.electron_per_photon
-        if include_gain:
-            response *= channel.camera_gain
-    # Multiply by the spatial plate scale (factor of sr)
-    response *= channel.plate_scale
-    # NOTE: multiplying by the spacing of the wavelength array as this is
-    # not generally the same as the spectral plate scale.
-    response *= np.gradient(channel.wavelength)
-
-    # Interpolate spectral cube to the wavelength array of the channel
-    # FIXME: In cases where we are using a binned spectra,
-    # we should be *rebinning* the spectral cube, not just interpolating it.
-    # The spectra should be rebinned to the range and bin width of the
-    # instrument.
-    # NOTE: it is ok that our spectral cube is not necessarily guaranteed
-    # to be at the spectral plate scale of the instrument as we will reproject
-    # to the correct spectral plate scale at a later point in the pipeline
-    # NOTE: this is only ok if we are reprojecting the full cube to the full
-    # overlappogram in one go. With the per slice approach, the wavelength
-    # grids must be the same, i.e. the wavelength grid exposed by the channel
-    # will be the wavelength grid used by overlappogram in the wavelength axis
-    f_response = interp1d(cube.axis_world_coords(0)[0].to_value('Angstrom'),
-                          cube.data,
-                          axis=0,
-                          bounds_error=False,
-                          fill_value=0.0,)  # Response is 0 outside of the response range
-    data_interp = f_response(channel.wavelength.to_value('Angstrom'))
-    data_interp = (data_interp.T * response.to_value()).T
-
-    unit = cube.unit * response.unit
-    meta = copy.deepcopy(cube.meta)
-    meta['CHANNAME'] = channel.name
-    # Reset the units if they were in the metadata
-    meta.pop('BUNIT', None)
-
-    # Construct new WCS for the modified wavelength axis
-    # NOTE: When there is only one axis that corresponds to wavlength, then
-    # just dconstruct a new wavelength axis
-    if len(cube.data.shape) == 1:
-        new_wcs = QuantityTableCoordinate(channel.wavelength,
-                                          names='wavelength',
-                                          physical_types='em.wl').wcs
-    else:
-        new_wcs = extend_celestial_wcs(cube[0].wcs.low_level_wcs,
-                                       channel.wavelength,
-                                       'wavelength',
-                                       'em.wl')
-
-    return NDCube(data_interp, wcs=new_wcs, meta=meta, unit=unit)
 
 
 class Channel:
@@ -158,7 +78,8 @@ Reference pixel: {self.reference_pixel}
         polymide = ThinFilmFilter(elements=['C', 'H', 'N', 'O'],
                                   quantities=[22, 10, 2, 5],
                                   density=1.43*u.g/u.cm**3,
-                                  thickness=1*u.micron, xrt_table=self.xrt_table_name)
+                                  thickness=1*u.micron,
+                                  xrt_table=self.xrt_table_name)
         aluminum = ThinFilmFilter(elements='Al', thickness=150*u.nm, xrt_table=self.xrt_table_name)
         return {
             'filtergram_1': ThinFilmFilter('Be', thickness=8*u.micron, xrt_table=self.xrt_table_name),
@@ -280,7 +201,7 @@ Reference pixel: {self.reference_pixel}
     @property
     @u.quantity_input
     def energy(self) -> u.keV:
-        return const.h * const.c / self.wavelength
+        return self.wavelength.to('keV', equivalencies=u.spectral())
 
     @property
     def _energy_out_of_bounds(self):
@@ -333,10 +254,11 @@ Reference pixel: {self.reference_pixel}
 
     @property
     @u.quantity_input
-    def detector_efficiency(self) -> u.dimensionless_unscaled:
-        # NOTE: this thickness was determined by comparisons between the detector efficiency
-        # originally in the genx files from the origional proposal.
-        si = ThinFilmFilter('Si', thickness=33*u.micron, xrt_table=self.xrt_table_name)
+    def quantum_efficiency(self) -> u.dimensionless_unscaled:
+        # NOTE: Value of 10 microns based on conversations with A. Caspi regarding
+        # expected width. This thickness is different from what was used for calculating
+        # the detector efficiency in the original CubIXSS proposal.
+        si = ThinFilmFilter('Si', thickness=10*u.micron, xrt_table=self.xrt_table_name)
         return 1.0 - si.transmissivity(self._energy_no_inf)
 
     @property
@@ -344,8 +266,8 @@ Reference pixel: {self.reference_pixel}
     def effective_area(self) -> u.cm**2:
         effective_area = (self.geometrical_collecting_area *
                           self.filter_transmission *
-                          self.grating_efficiency *
-                          self.detector_efficiency)
+                          self.quantum_efficiency *
+                          self.grating_efficiency)
         return np.where(self._energy_out_of_bounds, 0*u.cm**2, effective_area)
 
     @property
@@ -365,8 +287,7 @@ Reference pixel: {self.reference_pixel}
     @property
     @u.quantity_input
     def camera_gain(self) -> u.Unit('ct / electron'):
-        # TODO: double check the units on this
-        return u.Quantity(1.0, 'ct / electron')
+        return u.Quantity(1.8, 'ct / electron')
 
     @property
     @u.quantity_input
@@ -381,7 +302,9 @@ Reference pixel: {self.reference_pixel}
     @property
     @u.quantity_input
     def wavelength_response(self) -> u.Unit('cm^2 ct / photon'):
-        wave_response = self.effective_area * self.electron_per_photon * self.camera_gain
+        wave_response = (self.effective_area *
+                         self.electron_per_photon *
+                         self.camera_gain)
         return np.where(self._energy_out_of_bounds, 0*u.Unit('cm2 ct /ph'), wave_response)
 
     def get_wcs(self, observer, roll_angle=90*u.deg, dispersion_angle=0*u.deg):
@@ -490,7 +413,7 @@ class SpectrogramChannel(Channel):
             tab[f'grating_efficiency_{o}'] = tab['EFF'].data[:, i]
         tab.remove_columns(['EFF', 'SYS_MIN'])
         tab.rename_column('ENERGY', 'energy')
-        tab['wavelength'] = (const.h * const.c / tab['energy']).to('Angstrom')
+        tab['wavelength'] = tab['energy'].to('Angstrom', equivalencies=u.spectral())
         return tab
 
 
@@ -501,4 +424,4 @@ def get_all_filtergram_channels(**kwargs):
 
 def get_all_dispersed_channels(**kwargs):
     spectral_orders = [-4, -3, -2, -1, 0, 1, 2, 3, 4]
-    return [SpectrogramChannel(order, **kwargs)for order in spectral_orders]
+    return [SpectrogramChannel(order, **kwargs) for order in spectral_orders]
