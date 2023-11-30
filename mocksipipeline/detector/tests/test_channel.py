@@ -29,13 +29,15 @@ def test_channel(channel):
 @pytest.mark.parametrize('channel', ALL_CHANNELS)
 def test_effective_area(channel):
     assert isinstance(channel.effective_area, u.Quantity)
-    assert channel.effective_area.to('cm2')
+    assert channel.effective_area.shape == channel.wavelength.shape
+    assert channel.effective_area.unit.is_equivalent('cm2')
 
 
 @pytest.mark.parametrize('channel', ALL_CHANNELS)
 def test_wavelength_response(channel):
     assert isinstance(channel.wavelength_response, u.Quantity)
-    assert channel.wavelength_response.to('cm2 ct / ph')
+    assert channel.wavelength_response.shape == channel.wavelength.shape
+    assert channel.wavelength_response.unit.is_equivalent('cm2 ct / ph')
 
 
 @pytest.mark.parametrize('channel', get_all_filtergram_channels())
