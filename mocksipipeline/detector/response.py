@@ -1,21 +1,19 @@
 """
 Classes for computing wavelength response functions for MOXSI
 """
-import numpy as np
-import astropy.units as u
 import astropy.table
+import astropy.units as u
+import numpy as np
 from astropy.utils.data import get_pkg_data_filename
-from scipy.interpolate import interp1d
-from sunpy.util import MetaDict
-from sunpy.io.special import read_genx
-
 from overlappy.wcs import overlappogram_fits_wcs, pcij_matrix
+from scipy.interpolate import interp1d
+from sunpy.io.special import read_genx
+from sunpy.util import MetaDict
 
 from mocksipipeline.detector.filter import ThinFilmFilter
 
 __all__ = [
     'Channel',
-    'SpectrogramChannel',
     'get_all_filtergram_channels',
     'get_all_dispersed_channels',
 ]
@@ -29,24 +27,23 @@ class Channel:
     ----------
     name: `str`
         Name of the filtergram. This determines the position of the image on the detector.
-    filter: `~mocksipipeline.detector.filter.ThinFilmFilter` or list
+    order: `int`, optional
+        Spectral order for the channel. By default, this is 0.
+    filters: `~mocksipipeline.detector.filter.ThinFilmFilter` or list
         If multiple filters are specified, the the filter transmission is computed as
-        the product of the transmissivities.
-    instrument_file: `str`, optional
-        Instrument file (in genx format) to pull wavelength response information from.
-        This is mostly used for getting the grating and detector efficiency.
-    full_detector: `bool`, optional
-        If True (default), the detector shape and reference pixel include the full
-        detector, including the the halves for the disersed image and filtergram images.
-        If False, the reference pixel and detector shape denote only the half where the
-        relevant half of the detector.
+        the product of the transmissivities. If not specified, fall back to default
+        filters for a particular channel.
     """
 
-    def __init__(self, name, filters=None, full_detector=True):
+    def __init__(self, name, order=0, filters=None, **kwargs):
         self.name = name
-        self.xrt_table_name = 'Chantler'  # Intentially hardcoding this for now
+        self.spectral_order = order
+        self.xrt_table_name = 'Chantler'  # Intentionally hardcoding this for now
         self.filters = filters
-        self.full_detector = full_detector
+        self.grating_file = kwargs.pop('grating_file', None)
+        if self.grating_file is None:
+            self.grating_file = get_pkg_data_filename('data/hetgD1996-11-01greffpr001N0007.fits',
+                                                      package='mocksipipeline.detector')
 
     def __repr__(self):
         return f"""MOXSI Detector Channel--{self.name}
@@ -59,18 +56,6 @@ Spectral resolution: {self.spectral_resolution}
 Spatial resolution: {self.resolution}
 Reference pixel: {self.reference_pixel}
 """
-
-    @staticmethod
-    def _read_genx_instrument_data(name, instrument_file=None):
-        # This is deprecated functionality for pulling parameters from the old genx file
-        if instrument_file is None:
-            instrument_file = get_pkg_data_filename('data/MOXSI_effarea.genx',
-                                                    package='mocksipipeline.detector')
-        instrument_data = read_genx(instrument_file)
-        index_mapping = {}
-        for i, c in enumerate(instrument_data['SAVEGEN0']):
-            index_mapping[c['CHANNEL']] = i
-        return MetaDict(instrument_data['SAVEGEN0'][index_mapping[name]])
 
     @property
     def _default_filters(self):
@@ -86,6 +71,7 @@ Reference pixel: {self.reference_pixel}
             'filtergram_2': ThinFilmFilter('Be', thickness=30*u.micron, xrt_table=self.xrt_table_name),
             'filtergram_3': ThinFilmFilter('Be', thickness=350*u.micron, xrt_table=self.xrt_table_name),
             'filtergram_4': [polymide, aluminum],
+            'spectrogram_1': aluminum,
         }
 
     @property
@@ -112,7 +98,14 @@ Reference pixel: {self.reference_pixel}
 
     @property
     def spectral_order(self):
-        return 0
+        return self._spectral_order
+
+    @spectral_order.setter
+    def spectral_order(self, value):
+        allowed_spectral_orders = [-4, -3, -2, -1, 0, 1, 2, 3, 4]
+        if value not in allowed_spectral_orders:
+            raise ValueError(f'{value} is not an allowed spectral order.')
+        self._spectral_order = value
 
     @property
     @u.quantity_input
@@ -129,10 +122,7 @@ Reference pixel: {self.reference_pixel}
         # NOTE: this is the full detector, including both the filtergrams and
         # the dispersed image
         # NOTE: the order here is (number of rows, number of columns)
-        if self.full_detector:
-            return (1500, 2000)
-        else:
-            return (750, 2000)
+        return (1500, 2000)
 
     @property
     def _reference_pixel_lookup(self):
@@ -146,10 +136,7 @@ Reference pixel: {self.reference_pixel}
         p_x = margin + (window - 1)/2
         # NOTE: this is the y coordinate of the reference pixel of all of the
         # filtergram images
-        if self.full_detector:
-            p_y = (self.detector_shape[0]/2 - 1)/2 + self.detector_shape[0]/2
-        else:
-            p_y = (self.detector_shape[0] - 1)/2
+        p_y = (self.detector_shape[0]/2 - 1)/2 + self.detector_shape[0]/2
         # NOTE: the order here is Cartesian, not (row, column)
         # NOTE: this is 1-indexed
         return {
@@ -157,6 +144,7 @@ Reference pixel: {self.reference_pixel}
             'filtergram_2': (p_x + window, p_y, 0) * u.pix,
             'filtergram_3': (p_x + 2*window, p_y, 0) * u.pix,
             'filtergram_4': (p_x + 3*window, p_y, 0) * u.pix,
+            'spectrogram_1': ((self.detector_shape[1] - 1)/2, (self.detector_shape[0]/2 - 1)/2, 0)*u.pix,
         }
 
     @property
@@ -205,7 +193,7 @@ Reference pixel: {self.reference_pixel}
 
     @property
     def _energy_out_of_bounds(self):
-        # NOTE: This is needed becuase the functions in xrt called
+        # NOTE: This is needed because the functions in xrt called
         # by ThinFilmFilter cannot handle infinite energy but handle
         # NaN fine. The transmissivities at these infinities is just
         # set to 0. This is primarily so that we can handle 0 wavelength.
@@ -222,7 +210,7 @@ Reference pixel: {self.reference_pixel}
 
     @property
     def _energy_no_inf(self):
-        # NOTE: This is needed becuase the functions in xrt called
+        # NOTE: This is needed because the functions in xrt called
         # by ThinFilmFilter cannot handle infinite energy but handle
         # NaN fine. The transmissivities at these infinities is just
         # set to 0. This is primarily so that we can handle 0 wavelength.
@@ -250,7 +238,44 @@ Reference pixel: {self.reference_pixel}
     @property
     @u.quantity_input
     def grating_efficiency(self) -> u.dimensionless_unscaled:
-        return u.Quantity(np.ones(self.wavelength.shape))
+        # NOTE: Filtergrams do not have any grating in front of them
+        if 'filtergram' in self.name:
+            return u.Quantity(np.ones(self.wavelength.shape))
+        # Get grating efficiency tables for both shells of the HEG grating
+        heg_shell_4 = self._read_grating_file(self.grating_file, 3)
+        heg_shell_6 = self._read_grating_file(self.grating_file, 4)
+        # Interpolate grating efficiency of relevant order to detector wavelength
+        ge_shell_4 = self._wavelength_interpolator(heg_shell_4['wavelength'],
+                                                   heg_shell_4[f'grating_efficiency_{self.spectral_order}'])
+        ge_shell_6 = self._wavelength_interpolator(heg_shell_6['wavelength'],
+                                                   heg_shell_6[f'grating_efficiency_{self.spectral_order}'])
+        # Shells corresponding to HEG gratings should be equivalent to what we have so averaging
+        # the two gives us the best estimate for our grating efficiency
+        return u.Quantity((ge_shell_4 + ge_shell_6) / 2)
+
+    def _wavelength_interpolator(self, wavelength, value):
+        # Interpolates an array stored in the data file from the tabulated
+        # wavelengths to the wavelengths we want for this instrument
+        f_interp = interp1d(wavelength.to_value('Angstrom'),
+                            value,
+                            bounds_error=False,
+                            fill_value=0.0)
+        return f_interp(self.wavelength.to_value('Angstrom'))
+
+    @staticmethod
+    def _read_grating_file(filename, hdu):
+        # This function reads the grating efficiency for the HETG Chandra gratings
+        # from the calibration FITS files. These were downloaded using the Chandra
+        # calibration database https://cxc.cfa.harvard.edu/caldb/about_CALDB/directory.html
+        tab = astropy.table.QTable.read(filename, hdu=hdu)
+        # Separate all orders into individual columns (-11 to +11, including 0)
+        orders = np.arange(-11, 12, 1, dtype=int)
+        for i, o in enumerate(orders):
+            tab[f'grating_efficiency_{o}'] = tab['EFF'].data[:, i]
+        tab.remove_columns(['EFF', 'SYS_MIN'])
+        tab.rename_column('ENERGY', 'energy')
+        tab['wavelength'] = tab['energy'].to('Angstrom', equivalencies=u.spectral())
+        return tab
 
     @property
     @u.quantity_input
@@ -329,99 +354,11 @@ Reference pixel: {self.reference_pixel}
         )
 
 
-class SpectrogramChannel(Channel):
-    """
-    Access properties and compute wavelength responses for the dispersed image
-    components.
-
-    Parameters
-    ----------
-    order
-    filter
-    include_au_cr
-    """
-
-    def __init__(self, order, **kwargs):
-        self.spectral_order = order
-        self.grating_file = kwargs.pop('grating_file', None)
-        if self.grating_file is None:
-            self.grating_file = get_pkg_data_filename('data/hetgD1996-11-01greffpr001N0007.fits',
-                                                      package='mocksipipeline.detector')
-        super().__init__('dispersed_image', **kwargs)
-
-    @property
-    def _default_filters(self):
-        return {
-            'dispersed_image': ThinFilmFilter(elements='Al', thickness=150*u.nm, xrt_table=self.xrt_table_name),
-        }
-
-    @property
-    def _reference_pixel_lookup(self):
-        lookup = super()._reference_pixel_lookup
-        px = (self.detector_shape[1] - 1)/2
-        if self.full_detector:
-            py = (self.detector_shape[0]/2 - 1)/2
-        else:
-            py = (self.detector_shape[0] - 1)/2
-        lookup['dispersed_image'] = (px, py, 0) * u.pix
-        return lookup
-
-    @property
-    def spectral_order(self):
-        return self._spectral_order
-
-    @spectral_order.setter
-    def spectral_order(self, value):
-        allowed_spectral_orders = [-4, -3, -2, -1, 0, 1, 2, 3, 4]
-        if value not in allowed_spectral_orders:
-            raise ValueError(f'{value} is not an allowed spectral order.')
-        self._spectral_order = value
-
-    @property
-    @u.quantity_input
-    def grating_efficiency(self) -> u.dimensionless_unscaled:
-        # Get grating efficiency tables for both shells of the HEG grating
-        heg_shell_4 = self._read_grating_file(self.grating_file, 3)
-        heg_shell_6 = self._read_grating_file(self.grating_file, 4)
-        # Interpolate grating efficiency of relevant order to detector wavelength
-        ge_shell_4 = self._wavelength_interpolator(heg_shell_4['wavelength'],
-                                                   heg_shell_4[f'grating_efficiency_{self.spectral_order}'])
-        ge_shell_6 = self._wavelength_interpolator(heg_shell_6['wavelength'],
-                                                   heg_shell_6[f'grating_efficiency_{self.spectral_order}'])
-        # Shells corresponding to HEG gratings should be equivalent to what we have so averaging
-        # the two gives us the best estimate for our grating efficiency
-        return u.Quantity((ge_shell_4 + ge_shell_6) / 2)
-
-    def _wavelength_interpolator(self, wavelength, value):
-        # Interpolates an array stored in the data file from the tabulated
-        # wavelengths to the wavelengths we want for this instrument
-        f_interp = interp1d(wavelength.to_value('Angstrom'),
-                            value,
-                            bounds_error=False,
-                            fill_value=0.0)
-        return f_interp(self.wavelength.to_value('Angstrom'))
-
-    @staticmethod
-    def _read_grating_file(filename, hdu):
-        # This function reads the grating efficiency for the HETG Chandra gratings
-        # from the calibration FITS files. These were downloaded using the Chandra
-        # calibration database https://cxc.cfa.harvard.edu/caldb/about_CALDB/directory.html
-        tab = astropy.table.QTable.read(filename, hdu=hdu)
-        # Separate all orders into individual columns (-11 to +11, including 0)
-        orders = np.arange(-11, 12, 1, dtype=int)
-        for i, o in enumerate(orders):
-            tab[f'grating_efficiency_{o}'] = tab['EFF'].data[:, i]
-        tab.remove_columns(['EFF', 'SYS_MIN'])
-        tab.rename_column('ENERGY', 'energy')
-        tab['wavelength'] = tab['energy'].to('Angstrom', equivalencies=u.spectral())
-        return tab
-
-
 def get_all_filtergram_channels(**kwargs):
     filtergram_names = [f'filtergram_{i}' for i in range(1, 5)]
-    return [Channel(name, **kwargs) for name in filtergram_names]
+    return [Channel(name, order=0, **kwargs) for name in filtergram_names]
 
 
 def get_all_dispersed_channels(**kwargs):
     spectral_orders = [-4, -3, -2, -1, 0, 1, 2, 3, 4]
-    return [SpectrogramChannel(order, **kwargs) for order in spectral_orders]
+    return [Channel('spectrogram_1', order, **kwargs) for order in spectral_orders]
