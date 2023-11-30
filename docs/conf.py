@@ -15,6 +15,7 @@ author = 'Will Barnes'
 
 # The full version, including alpha/beta/rc tags
 from mocksipipeline import __version__
+
 release = __version__
 
 # -- General configuration ---------------------------------------------------
@@ -54,7 +55,9 @@ master_doc = 'index'
 # -- Options for intersphinx extension ---------------------------------------
 
 # Example configuration for intersphinx: refer to the Python standard library.
-intersphinx_mapping = {'https://docs.python.org/': None}
+intersphinx_mapping = {
+    'python': ('https://docs.python.org/', None),
+}
 
 # -- Options for HTML output -------------------------------------------------
 

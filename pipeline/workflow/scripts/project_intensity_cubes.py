@@ -1,11 +1,9 @@
 import astropy.units as u
-
 from overlappy.io import write_overlappogram
 
-from mocksipipeline.util import read_data_cube
 from mocksipipeline.detector import project_spectral_cube
-from mocksipipeline.detector.response import SpectrogramChannel, Channel
-
+from mocksipipeline.detector.response import Channel, SpectrogramChannel
+from mocksipipeline.util import read_data_cube
 
 if __name__ == '__main__':
     # Read in config options

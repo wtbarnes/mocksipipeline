@@ -1,8 +1,7 @@
 import sunpy.io._fits as sunpy_fits
 
-from mocksipipeline.util import read_cube_with_xarray
 from mocksipipeline.spectral import calculate_intensity, get_spectral_tables
-
+from mocksipipeline.util import read_cube_with_xarray
 
 if __name__ == '__main__':
     em_cube = read_cube_with_xarray(snakemake.input[0], 'temperature', 'phys.temperature')

@@ -4,16 +4,15 @@ Module for modeling counts at the detector plane
 import copy
 
 import astropy.units as u
-from astropy.convolution import convolve, Gaussian1DKernel
-from astropy.wcs.utils import wcs_to_celestial_frame, pixel_to_pixel
-from astropy.stats import gaussian_fwhm_to_sigma
 import dask.array
 import ndcube
-from ndcube.extra_coords import QuantityTableCoordinate
 import numpy as np
-from scipy.interpolate import interp1d
-
+from astropy.convolution import Gaussian1DKernel, convolve
+from astropy.stats import gaussian_fwhm_to_sigma
+from astropy.wcs.utils import pixel_to_pixel, wcs_to_celestial_frame
+from ndcube.extra_coords import QuantityTableCoordinate
 from overlappy.util import strided_array
+from scipy.interpolate import interp1d
 from synthesizAR.instruments.util import extend_celestial_wcs
 
 from mocksipipeline.detector.response import get_all_dispersed_channels

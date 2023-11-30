@@ -1,8 +1,9 @@
+import dataclasses
+
+import astropy.units as u
 import numpy as np
 import thermo
 from xrt.backends.raycing.materials import Material
-import dataclasses
-import astropy.units as u
 
 __all__ = ['ThinFilmFilter',]
 

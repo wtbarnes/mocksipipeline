@@ -5,14 +5,14 @@ import pathlib
 
 import aiapy.calibrate
 import asdf
-from astropy.stats import gaussian_fwhm_to_sigma
 import astropy.table
 import astropy.units as u
 import astropy.wcs
-from astropy.coordinates import SkyCoord
 import numpy as np
-from scipy.ndimage import gaussian_filter
 import sunpy.map
+from astropy.coordinates import SkyCoord
+from astropy.stats import gaussian_fwhm_to_sigma
+from scipy.ndimage import gaussian_filter
 from sunpy.coordinates import Helioprojective
 
 

@@ -5,15 +5,13 @@ import os
 import warnings
 
 import parse
-
 from sunpy.net import attrs as a
 from sunpy.net.attr import SimpleAttr
 from sunpy.net.dataretriever import GenericClient
 from sunpy.net.scraper import Scraper
 from sunpy.time import TimeRange
-
-from xrtpy.response.effective_area import index_mapping_to_fw1_name, index_mapping_to_fw2_name
-
+from xrtpy.response.effective_area import (index_mapping_to_fw1_name,
+                                           index_mapping_to_fw2_name)
 
 __all__ = ['XRTSynopticClient', 'FilterWheel1', 'FilterWheel2']
 

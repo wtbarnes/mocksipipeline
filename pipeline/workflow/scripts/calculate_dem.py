@@ -1,19 +1,19 @@
 """
 Script to compute DEM cube constrained by EUV and SXR images.
 """
-from astropy.nddata import StdDevUncertainty
+import aiapy.response
 import astropy.units as u
 import ndcube
 import numpy as np
 import parse
 import sunpy.map
-
-import aiapy.response
 import xrtpy
-from sunkit_dem import Model, GenericModel
+from astropy.nddata import StdDevUncertainty
+from sunkit_dem import GenericModel, Model
 
+from mocksipipeline.spectral import (compute_temperature_response,
+                                     get_spectral_tables)
 from mocksipipeline.util import write_cube_with_xarray
-from mocksipipeline.spectral import get_spectral_tables, compute_temperature_response
 
 
 def build_map_collection(map_list):
@@ -47,7 +47,7 @@ def get_cross_calibration_factor(key):
     - Schmelz et al. (2015) https://doi.org/10.1088/0004-637X/806/2/232
     - Schmelz et al. (2016) https://iopscience.iop.org/article/10.3847/1538-4357/833/2/182
     - Wright et al. (2017) https://iopscience.iop.org/article/10.3847/1538-4357/aa7a59
-    - Athiray et al. (2020) https://doi.org/10.3847/1538-4357/ab7200 
+    - Athiray et al. (2020) https://doi.org/10.3847/1538-4357/ab7200
     """
     if 'Be' in key:
         return 1.5
@@ -90,7 +90,7 @@ def calculate_response_kernels(collection, temperature, spectral_table):
             gain = gain * u.count / u.DN
             response = ea * gain * plate_scale
             response *= get_cross_calibration_factor(key)
-            
+
         else:
             raise KeyError(f'Unrecognized key {key}. Should be an AIA channel or XRT filter wheel combination.')
         T, tresp = compute_temperature_response(spectral_table, wavelength, response, return_temperature=True)
@@ -154,7 +154,7 @@ def compute_em(collection, kernels, temperature_bin_edges, kernel_temperatures):
                       kernel_temperatures=kernel_temperatures,
                       model='hk12')
     dem_res = dem_model.fit(**dem_settings)
-    # NOTE: not clear why there are negative values when resulting DEM 
+    # NOTE: not clear why there are negative values when resulting DEM
     # should be strictly positive
     dem_data = np.where(dem_res['em'].data < 0.0, 0.0, dem_res['em'].data)
     return ndcube.NDCube(dem_data,
