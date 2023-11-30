@@ -7,9 +7,8 @@ import numpy as np
 from astropy.utils.data import get_pkg_data_filename
 from overlappy.wcs import overlappogram_fits_wcs, pcij_matrix
 from scipy.interpolate import interp1d
-from sunpy.io.special import read_genx
-from sunpy.util import MetaDict
 
+from mocksipipeline.detector.design import nominal_design
 from mocksipipeline.detector.filter import ThinFilmFilter
 
 __all__ = [
@@ -35,9 +34,11 @@ class Channel:
         filters for a particular channel.
     """
 
-    def __init__(self, name, order=0, filters=None, **kwargs):
+    def __init__(self, name, order=0, filters=None, design=None, **kwargs):
         self.name = name
         self.spectral_order = order
+        if design is None:
+            self.design = nominal_design
         self.xrt_table_name = 'Chantler'  # Intentionally hardcoding this for now
         self.filters = filters
         self.grating_file = kwargs.pop('grating_file', None)
@@ -52,8 +53,8 @@ Spectral order: {self.spectral_order}
 Filter: {self.filter_label}
 Detector dimensions: {self.detector_shape}
 Wavelength range: [{self.wavelength_min}, {self.wavelength_max}]
-Spectral resolution: {self.spectral_resolution}
-Spatial resolution: {self.resolution}
+Spectral plate scale: {self.spectral_plate_scale}
+Spatial plate scale: {self.spatial_plate_scale}
 Reference pixel: {self.reference_pixel}
 """
 
@@ -109,20 +110,34 @@ Reference pixel: {self.reference_pixel}
 
     @property
     @u.quantity_input
-    def resolution(self) -> u.Unit('arcsec / pix'):
-        # These numbers come from Jake and Albert / CSR
-        # the order is lon, lat
-        # TODO: this should probably go in a file somewhere
-        # We could pull this from the 'PIX_SIZE' key in the data files, but it
-        # appears that value may be outdated
-        return (7.4, 7.4) * u.arcsec / u.pixel
+    def spatial_plate_scale(self) -> u.Unit('arcsec / pix'):
+        pixel_size = u.Quantity([self.design.pixel_size_x, self.design.pixel_size_y])/u.pixel
+        return (pixel_size / self.design.focal_length).decompose() * u.radian
+
+    @property
+    @u.quantity_input
+    def pixel_solid_angle(self) -> u.Unit('steradian / pix'):
+        """
+        This is the solid angle per pixel
+        """
+        area = (self.spatial_plate_scale[0] * u.pix) * (self.spatial_plate_scale[1] * u.pix)
+        return area / u.pix
+
+    @property
+    @u.quantity_input
+    def spectral_plate_scale(self) -> u.Unit('Angstrom / pix'):
+        # NOTE: Purposefully not dividing by the spectral order here as this is
+        # meant to only represent the first order spectral plate scale due to how we
+        # express the wavelength axis in the WCS as a "dummy" third axis. The additional dispersion
+        # at orders > 1 is handled by the spectral order term in the PC_ij matrix.
+        eff_pix_size = (self.design.pixel_size_x*np.fabs(np.cos(self.design.grating_roll_angle)) +
+                        self.design.pixel_size_y*np.fabs(np.sin(self.design.grating_roll_angle))) / u.pix
+        return (self.design.grating_groove_spacing *
+                (eff_pix_size/self.design.grating_focal_length).decompose())
 
     @property
     def detector_shape(self):
-        # NOTE: this is the full detector, including both the filtergrams and
-        # the dispersed image
-        # NOTE: the order here is (number of rows, number of columns)
-        return (1500, 2000)
+        return self.design.detector_shape
 
     @property
     def _reference_pixel_lookup(self):
@@ -166,7 +181,7 @@ Reference pixel: {self.reference_pixel}
         # NOTE: The resolution of the wavelength array is adjusted according to the
         # spectral order so that when reprojecting, we do not have gaps in the spectra
         # as the wavelength array gets stretched across the detector
-        delta_wave = self.spectral_resolution*u.pix
+        delta_wave = self.spectral_plate_scale*u.pix
         delta_wave /= 2 * (1 if self.spectral_order == 0 else np.fabs(self.spectral_order))
         return np.arange(
             self.wavelength_min.to_value('AA'),
@@ -218,14 +233,8 @@ Reference pixel: {self.reference_pixel}
 
     @property
     @u.quantity_input
-    def pinhole_diameter(self) -> u.cm:
-        # NOTE: this number comes from Jake
-        return 44 * u.micron
-
-    @property
-    @u.quantity_input
     def geometrical_collecting_area(self) -> u.cm**2:
-        return np.pi * (self.pinhole_diameter / 2)**2
+        return self.design.pinhole_area
 
     @property
     @u.quantity_input
@@ -297,22 +306,8 @@ Reference pixel: {self.reference_pixel}
 
     @property
     @u.quantity_input
-    def plate_scale(self) -> u.steradian / u.pixel:
-        """
-        This is the solid angle per pixel
-        """
-        area = (self.resolution[0] * u.pix) * (self.resolution[1] * u.pix)
-        return area / u.pix
-
-    @property
-    @u.quantity_input
-    def spectral_resolution(self) -> u.Unit('Angstrom / pix'):
-        return 71.8 * u.milliangstrom / u.pix
-
-    @property
-    @u.quantity_input
     def camera_gain(self) -> u.Unit('ct / electron'):
-        return u.Quantity(1.8, 'ct / electron')
+        return self.design.camera_gain
 
     @property
     @u.quantity_input
@@ -332,21 +327,21 @@ Reference pixel: {self.reference_pixel}
                          self.camera_gain)
         return np.where(self._energy_out_of_bounds, 0*u.Unit('cm2 ct /ph'), wave_response)
 
-    def get_wcs(self, observer, roll_angle=90*u.deg, dispersion_angle=0*u.deg):
+    def get_wcs(self, observer, roll_angle=90*u.deg):
         pc_matrix = pcij_matrix(roll_angle,
-                                dispersion_angle,
+                                self.design.grating_roll_angle,
                                 order=self.spectral_order)
         # NOTE: This is calculated explicitly here because the wavelength array for a
         # particular channel is not necessarily have a resolution equal to that of
         # the spectral plate scale.
         # NOTE: Calculated based on the information in the numpy docs for arange
         # https://numpy.org/doc/stable/reference/generated/numpy.arange.html
-        wave_step = self.spectral_resolution * u.pix
+        wave_step = self.spectral_plate_scale * u.pix
         wave_interval = self.wavelength_max - self.wavelength_min
         wave_shape = (np.ceil((wave_interval / wave_step).decompose().value).astype(int),)
         return overlappogram_fits_wcs(
             wave_shape+self.detector_shape,
-            (self.resolution[0], self.resolution[1], self.spectral_resolution),
+            (self.spatial_plate_scale[0], self.spatial_plate_scale[1], self.spectral_plate_scale),
             reference_pixel=self.reference_pixel,
             reference_coord=(0*u.arcsec, 0*u.arcsec, 0*u.angstrom),
             pc_matrix=pc_matrix,
