@@ -2,7 +2,6 @@ from overlappy.io import write_overlappogram
 
 from mocksipipeline.util import stack_components
 
-
 if __name__ == '__main__':
     # NOTE: Saving this with the WCS of the zeroth order dispersed image
     # Maybe there is a way to save the images with all of the WCS components

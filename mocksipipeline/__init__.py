@@ -3,7 +3,7 @@ Package for running the MOXSI simulator pipeline
 """
 import logging
 
-from .version import __version__
+from mocksipipeline.version import __version__
 
 __all__ = []
 

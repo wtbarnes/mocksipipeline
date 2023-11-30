@@ -8,7 +8,6 @@ import astropy.units as u
 import numpy as np
 import sunpy.map
 
-
 if __name__ == '__main__':
     m_l1 = sunpy.map.Map(snakemake.input[0])
     m_l2 = sunpy.map.Map(snakemake.input[1])

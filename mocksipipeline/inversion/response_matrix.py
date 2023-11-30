@@ -1,16 +1,15 @@
 """
 Functions for building the response matrix
 """
-from astropy.coordinates import SkyCoord
 import astropy.units as u
 import astropy.wcs
 import distributed
 import numpy as np
 import sunpy.map
-from sunpy.coordinates import Helioprojective, get_earth
-from scipy.interpolate import interp1d
 import xarray
-
+from astropy.coordinates import SkyCoord
+from scipy.interpolate import interp1d
+from sunpy.coordinates import Helioprojective, get_earth
 from synthesizAR.atomic.idl import spectrum_to_cube
 
 from mocksipipeline.detector.response import get_all_dispersed_channels

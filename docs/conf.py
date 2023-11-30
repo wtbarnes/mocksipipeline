@@ -15,6 +15,7 @@ author = 'Will Barnes'
 
 # The full version, including alpha/beta/rc tags
 from mocksipipeline import __version__
+
 release = __version__
 
 # -- General configuration ---------------------------------------------------

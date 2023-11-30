@@ -5,12 +5,11 @@ import pathlib
 
 import astropy.io.fits
 import astropy.units as u
+import numpy as np
+import xarray
 from astropy.wcs import WCS
 from ndcube import NDCube
 from ndcube.extra_coords import QuantityTableCoordinate
-import numpy as np
-import xarray
-
 from overlappy.io import read_overlappogram
 from overlappy.util import strided_array
 from synthesizAR.instruments.util import extend_celestial_wcs
@@ -124,7 +123,7 @@ def write_cube_with_xarray(cube, axis_name, celestial_wcs, filename):
     """
     Write an NDCube to a netCDF file
 
-    This function writes an NDCube to a netCDF file by first expressing 
+    This function writes an NDCube to a netCDF file by first expressing
     it as an xarray DataArray. This works only for 3D cubes where two of
     the axes correspond to spatial, celestial axes.
 

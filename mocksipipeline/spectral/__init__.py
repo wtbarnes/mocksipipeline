@@ -4,8 +4,8 @@ Module for converting DEM to spectral cube
 import warnings
 
 import astropy.units as u
-from astropy.utils.data import get_pkg_data_filenames
 import numpy as np
+from astropy.utils.data import get_pkg_data_filenames
 from scipy.interpolate import interp1d
 
 __all__ = ['calculate_intensity', 'get_spectral_tables', 'compute_temperature_response']
@@ -21,7 +21,7 @@ def get_spectral_tables(pattern='', sum_tables=False):
     Get CHIANTI spectra as a function of temperature and wavelength
 
     Returns either component spectra, based on selected pattern or
-    a summation of all selected tables. Summing is useful, e.g. if 
+    a summation of all selected tables. Summing is useful, e.g. if
     you want the spectra for all ions of a given element.
 
     Parameters

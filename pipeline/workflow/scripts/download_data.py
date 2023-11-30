@@ -4,12 +4,12 @@ Script to download data for constraining the DEM
 import pathlib
 
 import astropy.units as u
-from sunpy.net import Fido, attrs as a
+from sunpy.net import Fido
+from sunpy.net import attrs as a
 from sunpy.time import parse_time
 
 import mocksipipeline.net  # Register XRTSynopticClient
 from mocksipipeline.net import FilterWheel1, FilterWheel2
-
 
 if __name__ == '__main__':
     obstime = parse_time(snakemake.config["obstime"])
