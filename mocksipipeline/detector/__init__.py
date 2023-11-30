@@ -50,7 +50,7 @@ def convolve_with_response(cube, channel, electrons=True, include_gain=False):
         if include_gain:
             response *= channel.camera_gain
     # Multiply by the spatial plate scale (factor of sr)
-    response *= channel.plate_scale
+    response *= channel.pixel_solid_angle
     # NOTE: multiplying by the spacing of the wavelength array as this is
     # not generally the same as the spectral plate scale.
     response *= np.gradient(channel.wavelength)
