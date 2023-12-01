@@ -28,7 +28,10 @@ class Channel:
         Name of the filtergram. This determines the position of the image on the detector.
     order: `int`, optional
         Spectral order for the channel. By default, this is 0.
-    filters: `~mocksipipeline.detector.filter.ThinFilmFilter` or list
+    design: `~mocksipipeline.detector.design.InstrumentDesign`, optional
+        Instrument design. If not specified, will default to
+        `~mocksipipeline.detector.design.nominal_design`
+    filters: `~mocksipipeline.detector.filter.ThinFilmFilter` or list, optional
         If multiple filters are specified, the the filter transmission is computed as
         the product of the transmissivities. If not specified, fall back to default
         filters for a particular channel.
