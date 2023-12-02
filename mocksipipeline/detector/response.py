@@ -296,7 +296,8 @@ Reference pixel: {self.reference_pixel}
         # expected width. This thickness is different from what was used for calculating
         # the detector efficiency in the original CubIXSS proposal.
         si = ThinFilmFilter('Si', thickness=10*u.micron, xrt_table=self.xrt_table_name)
-        return 1.0 - si.transmissivity(self._energy_no_inf)
+        sio2 = ThinFilmFilter(['Si', 'O'], thickness=50*u.AA, quantities=[1,2], xrt_table=self.xrt_table_name)
+        return sio2.transmissivity(self._energy_no_inf)*(1.0 - si.transmissivity(self._energy_no_inf))
 
     @property
     @u.quantity_input
