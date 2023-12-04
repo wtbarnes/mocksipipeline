@@ -6,7 +6,10 @@ import dataclasses
 import astropy.units as u
 import numpy as np
 
-__all__ = ['InstrumentDesign']
+__all__ = [
+    'InstrumentDesign',
+    'nominal_design',
+]
 
 
 @dataclasses.dataclass
@@ -36,6 +39,9 @@ class InstrumentDesign:
         (in that order) on the detector.
     pinhole_diameter: `~astropy.units.Quantity`, optional
         Diameter of the circular pinhole
+    camera_gain: `~astropy.units.Quantity`, optional
+        Gain of the camera that determines conversion between electrons
+        and DN in the detector.
     """
     focal_length: u.Quantity[u.cm]
     grating_focal_length: u.Quantity[u.cm]
@@ -60,6 +66,3 @@ nominal_design = InstrumentDesign(
     grating_groove_spacing=1/5000*u.mm,
     grating_roll_angle=0*u.deg,
 )
-
-# As we iterate on the design, additional configurations
-# should go here

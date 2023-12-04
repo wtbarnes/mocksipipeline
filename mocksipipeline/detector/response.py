@@ -129,6 +129,17 @@ Reference pixel: {self.reference_pixel}
     @property
     @u.quantity_input
     def spectral_plate_scale(self) -> u.Unit('Angstrom / pix'):
+        r"""
+        The spectral plate scale is computed as,
+
+        .. math::
+
+            \Delta\lambda = \frac{d(\Delta x\|\cos{\gamma}\| + \Delta y\|\sin{\gamma}\|)}{f^\prime}
+
+        where :math:`\gamma` is the grating roll angle and :math`\Delta x,\Delta y`
+        are the spatial plate scales, :math:`d` is the groove spacing of the grating, and
+        :math:`f^\prime` is the distance between the grating and the detector.
+        """
         # NOTE: Purposefully not dividing by the spectral order here as this is
         # meant to only represent the first order spectral plate scale due to how we
         # express the wavelength axis in the WCS as a "dummy" third axis. The additional dispersion
@@ -292,6 +303,10 @@ Reference pixel: {self.reference_pixel}
     @property
     @u.quantity_input
     def quantum_efficiency(self) -> u.dimensionless_unscaled:
+        r"""
+        The quantum efficiency is computed as the transmittance of
+        :math:`\mathrm{SiO}_2` multiplied by the absorption of Si.
+        """
         # NOTE: Value of 10 microns based on conversations with A. Caspi regarding
         # expected width. This thickness is different from what was used for calculating
         # the detector efficiency in the original CubIXSS proposal.
@@ -336,7 +351,7 @@ Reference pixel: {self.reference_pixel}
                                 self.design.grating_roll_angle,
                                 order=self.spectral_order)
         # NOTE: This is calculated explicitly here because the wavelength array for a
-        # particular channel is not necessarily have a resolution equal to that of
+        # particular channel does not necessarily have a resolution equal to that of
         # the spectral plate scale.
         # NOTE: Calculated based on the information in the numpy docs for arange
         # https://numpy.org/doc/stable/reference/generated/numpy.arange.html
