@@ -67,12 +67,12 @@ def calculate_response_kernels(collection, temperature, spectral_table):
         # NOTE: We multiply by pixel because the plate scale should be in units of
         # arcsecond^2 per pixel and each scale factor of the map has units of
         # arcsecond per pixel.
-        plate_scale = smap.scale.axis1 * smap.scale.axis2 * u.pix
+        pix_solid_angle = smap.scale.axis1 * smap.scale.axis2 * u.pix
         if 'AIA' in smap.instrument:
             c = aiapy.response.Channel(smap.wavelength)
             # NOTE: Intentionally not including the obstime here to include the degradation correction
             # because the input maps have already been corrected for degradation.
-            response = c.wavelength_response() * plate_scale
+            response = c.wavelength_response() * pix_solid_angle
             wavelength = c.wavelength
         elif 'XRT' in smap.instrument:
             # NOTE: The filter wheel designations can be in either order
@@ -88,7 +88,7 @@ def calculate_response_kernels(collection, temperature, spectral_table):
             # in solar physics. However, DN is not a unit recognized in the FITS standard so we substitute it
             # for count. This is currently the unit that we use in sunpy in place of DN.
             gain = gain * u.count / u.DN
-            response = ea * gain * plate_scale
+            response = ea * gain * pix_solid_angle
             response *= get_cross_calibration_factor(key)
 
         else:

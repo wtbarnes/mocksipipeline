@@ -81,7 +81,7 @@ def stack_components(components, wcs_index=0):
             layers.append(c)
         else:
             layers.append(read_overlappogram(pathlib.Path(c)))
-    data = np.array([l.data[0] for l in layers]).sum(axis=0)
+    data = np.array([layer.data[0] for layer in layers]).sum(axis=0)
     wcs = layers[wcs_index].wcs
     data_strided = strided_array(data, layers[wcs_index].data.shape[0])
     return NDCube(data_strided,

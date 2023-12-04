@@ -31,7 +31,7 @@ def compute_effective_spectra(spectra, channel):
                         bounds_error=False,
                         fill_value=0.0)  # Response is 0 outside of the response range
     spectra_interp = f_interp(channel.wavelength.to_value('Angstrom')) * spectra.unit
-    response = channel.wavelength_response * channel.plate_scale * np.gradient(channel.wavelength)
+    response = channel.wavelength_response * channel.pixel_solid_angle * np.gradient(channel.wavelength)
     spectra_eff = spectra_interp * response
     return spectrum_to_cube(spectra_eff, channel.wavelength, spectra.axis_world_coords(0)[0])
 
