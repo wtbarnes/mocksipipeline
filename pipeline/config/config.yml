@@ -10,6 +10,6 @@ psf_fwhm: 40  # in arcsec
 log_t_left_edge: 5.5
 log_t_right_edge: 7.5
 delta_log_t: 0.1
-exposure_time: 1.0  # in s
+exposure_time: 3600  # in s
 cadence: 3600  # in s
 convert_to_dn: True
