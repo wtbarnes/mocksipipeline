@@ -177,12 +177,12 @@ def compute_flux_point_source(intensity, location, blur=None, channels=None, **k
         flux.meta['spectral_order'] = channel.spectral_order
         _pix_grid, _, _ = channel.get_wcs(location.observer, **kwargs).world_to_pixel(location, channel.wavelength)
         flux_total += np.interp(pix_grid, _pix_grid, flux.data)
-        if blur:
+        if blur is not None:
             flux = _blur_spectra(flux, blur, channel)
         cube_list.append((f'order_{channel.spectral_order}', flux))
 
     flux_total = ndcube.NDCube(flux_total, wcs=cube_list[0][1].wcs, unit=flux.unit)
-    if blur:
+    if blur is not None:
         flux_total = _blur_spectra(flux_total, blur, channels[0])
     cube_list.append(('total', flux_total))
 
@@ -200,7 +200,7 @@ def _blur_spectra(flux, blur, channel):
         FWHM in spectral space of the estimated blur
     """
     std = blur / np.fabs(channel.spectral_order) * gaussian_fwhm_to_sigma
-    std_eff = (std / channel.spectral_resolution).to_value('pix')
+    std_eff = (std / channel.spectral_plate_scale).to_value('pix')
     kernel = Gaussian1DKernel(std_eff)
     data = convolve(flux.data, kernel)
     return ndcube.NDCube(data, wcs=flux.wcs, unit=flux.unit, meta=flux.meta)

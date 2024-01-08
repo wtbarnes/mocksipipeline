@@ -94,8 +94,10 @@ rule download_pointing_table:
         from aiapy.calibrate.util import get_pointing_table
         import astropy.time
         import astropy.units as u
+        from astropy.table import QTable
         obstime = astropy.time.Time(config["obstime"])
         tab = get_pointing_table(obstime-6*u.h, obstime+6*u.h)
+        tab = QTable(tab)
         tab.meta.clear()  # Cannot serialize JSOCClient object
         tab.write(output[0])
 
@@ -104,7 +106,9 @@ rule download_correction_table:
         root_dir / 'aia_correction_table.asdf'
     run:
         from aiapy.calibrate.util import get_correction_table
+        from astropy.table import QTable
         tab = get_correction_table()
+        tab = QTable(tab)
         tab.meta.clear()  # Cannot serialize JSOCClient object
         tab.write(output[0])
 
