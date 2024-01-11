@@ -8,13 +8,10 @@ from astropy.utils.data import get_pkg_data_filename
 from overlappy.wcs import overlappogram_fits_wcs, pcij_matrix
 from scipy.interpolate import interp1d
 
-from mocksipipeline.detector.design import nominal_design
-from mocksipipeline.detector.filter import ThinFilmFilter
+from mocksipipeline.instrument.optics.filter import ThinFilmFilter
 
 __all__ = [
     'Channel',
-    'get_all_filtergram_channels',
-    'get_all_dispersed_channels',
 ]
 
 
@@ -28,26 +25,28 @@ class Channel:
         Name of the filtergram. This determines the position of the image on the detector.
     order: `int`, optional
         Spectral order for the channel. By default, this is 0.
-    design: `~mocksipipeline.detector.design.InstrumentDesign`, optional
-        Instrument design. If not specified, will default to
+    optical_design: `~mocksipipeline.detector.design.OpticalDesign`, optional
+        Instrument optical design. If not specified, will default to
         `~mocksipipeline.detector.design.nominal_design`
     filters: `~mocksipipeline.detector.filter.ThinFilmFilter` or list, optional
-        If multiple filters are specified, the the filter transmission is computed as
+        If multiple filters are specified, the filter transmission is computed as
         the product of the transmissivities. If not specified, fall back to default
         filters for a particular channel.
+    reference_pixel: `tuple`,
+        Pixel location of solar image in cartesian coordinates
     """
 
-    def __init__(self, name, order=0, filters=None, design=None, **kwargs):
+    def __init__(self, name, filters, order, design, reference_pixel, **kwargs):
         self.name = name
         self.spectral_order = order
-        if design is None:
-            self.design = nominal_design
+        self.design = design
         self.xrt_table_name = 'Chantler'  # Intentionally hardcoding this for now
         self.filters = filters
         self.grating_file = kwargs.pop('grating_file', None)
         if self.grating_file is None:
             self.grating_file = get_pkg_data_filename('data/hetgD1996-11-01greffpr001N0007.fits',
-                                                      package='mocksipipeline.detector')
+                                                      package='mocksipipeline.instrument.optics')
+        self.reference_pixel = reference_pixel
 
     def __repr__(self):
         return f"""MOXSI Detector Channel--{self.name}
@@ -61,22 +60,6 @@ Spatial plate scale: {self.spatial_plate_scale}
 Reference pixel: {self.reference_pixel}
 """
 
-    @property
-    def _default_filters(self):
-        # These are based off the current instrument design
-        polymide = ThinFilmFilter(elements=['C', 'H', 'N', 'O'],
-                                  quantities=[22, 10, 2, 5],
-                                  density=1.43*u.g/u.cm**3,
-                                  thickness=1*u.micron,
-                                  xrt_table=self.xrt_table_name)
-        aluminum = ThinFilmFilter(elements='Al', thickness=150*u.nm, xrt_table=self.xrt_table_name)
-        return {
-            'filtergram_1': ThinFilmFilter('Be', thickness=8*u.micron, xrt_table=self.xrt_table_name),
-            'filtergram_2': ThinFilmFilter('Be', thickness=30*u.micron, xrt_table=self.xrt_table_name),
-            'filtergram_3': ThinFilmFilter('Be', thickness=350*u.micron, xrt_table=self.xrt_table_name),
-            'filtergram_4': [polymide, aluminum],
-            'spectrogram_1': aluminum,
-        }
 
     @property
     def filters(self):
@@ -84,8 +67,6 @@ Reference pixel: {self.reference_pixel}
 
     @filters.setter
     def filters(self, value):
-        if value is None:
-            value = self._default_filters[self.name]
         if isinstance(value, ThinFilmFilter):
             self._filters = [value]
         elif isinstance(value, list):
@@ -114,7 +95,7 @@ Reference pixel: {self.reference_pixel}
     @property
     @u.quantity_input
     def spatial_plate_scale(self) -> u.Unit('arcsec / pix'):
-        pixel_size = u.Quantity([self.design.pixel_size_x, self.design.pixel_size_y])/u.pixel
+        pixel_size = u.Quantity([self.design.pixel_size_x, self.design.pixel_size_y]) / u.pixel
         return (pixel_size / self.design.focal_length).decompose() * u.radian
 
     @property
@@ -144,42 +125,14 @@ Reference pixel: {self.reference_pixel}
         # meant to only represent the first order spectral plate scale due to how we
         # express the wavelength axis in the WCS as a "dummy" third axis. The additional dispersion
         # at orders > 1 is handled by the spectral order term in the PC_ij matrix.
-        eff_pix_size = (self.design.pixel_size_x*np.fabs(np.cos(self.design.grating_roll_angle)) +
-                        self.design.pixel_size_y*np.fabs(np.sin(self.design.grating_roll_angle))) / u.pix
+        eff_pix_size = (self.design.pixel_size_x * np.fabs(np.cos(self.design.grating_roll_angle)) +
+                        self.design.pixel_size_y * np.fabs(np.sin(self.design.grating_roll_angle))) / u.pix
         return (self.design.grating_groove_spacing *
-                (eff_pix_size/self.design.grating_focal_length).decompose())
+                (eff_pix_size / self.design.grating_focal_length).decompose())
 
     @property
     def detector_shape(self):
         return self.design.detector_shape
-
-    @property
-    def _reference_pixel_lookup(self):
-        # NOTE: this is the number of pixels between the edge of the detector
-        # and the leftmost and rightmost filtergram images
-        margin = 50
-        # NOTE: this is the width, in pixel space, of each filtergram image
-        window = 475
-        # NOTE: this is the x coordinate of the reference pixel of the leftmost
-        # filtergram image
-        p_x = margin + (window - 1)/2
-        # NOTE: this is the y coordinate of the reference pixel of all of the
-        # filtergram images
-        p_y = (self.detector_shape[0]/2 - 1)/2 + self.detector_shape[0]/2
-        # NOTE: the order here is Cartesian, not (row, column)
-        # NOTE: this is 1-indexed
-        return {
-            'filtergram_1': (p_x, p_y, 0) * u.pix,
-            'filtergram_2': (p_x + window, p_y, 0) * u.pix,
-            'filtergram_3': (p_x + 2*window, p_y, 0) * u.pix,
-            'filtergram_4': (p_x + 3*window, p_y, 0) * u.pix,
-            'spectrogram_1': ((self.detector_shape[1] - 1)/2, (self.detector_shape[0]/2 - 1)/2, 0)*u.pix,
-        }
-
-    @property
-    @u.quantity_input
-    def reference_pixel(self) -> u.pixel:
-        return self._reference_pixel_lookup[self.name]
 
     @property
     def name(self):
@@ -195,7 +148,7 @@ Reference pixel: {self.reference_pixel}
         # NOTE: The resolution of the wavelength array is adjusted according to the
         # spectral order so that when reprojecting, we do not have gaps in the spectra
         # as the wavelength array gets stretched across the detector
-        delta_wave = self.spectral_plate_scale*u.pix
+        delta_wave = self.spectral_plate_scale * u.pix
         delta_wave /= 2 * (1 if self.spectral_order == 0 else np.fabs(self.spectral_order))
         return np.arange(
             self.wavelength_min.to_value('AA'),
@@ -230,9 +183,9 @@ Reference pixel: {self.reference_pixel}
         # compute the transmissivity of the materials and thus the energy is
         # set to NaN here as well.
         energy_bounds = {
-            'Henke': u.Quantity([10*u.eV, 30*u.keV]),
-            'Chantler': u.Quantity([11*u.eV, 405*u.keV]),
-            'BrCo': u.Quantity([30*u.eV, 509*u.keV]),
+            'Henke': u.Quantity([10 * u.eV, 30 * u.keV]),
+            'Chantler': u.Quantity([11 * u.eV, 405 * u.keV]),
+            'BrCo': u.Quantity([30 * u.eV, 509 * u.keV]),
         }
         return np.logical_or(self.energy < energy_bounds[self.xrt_table_name][0],
                              self.energy > energy_bounds[self.xrt_table_name][1])
@@ -247,7 +200,7 @@ Reference pixel: {self.reference_pixel}
 
     @property
     @u.quantity_input
-    def geometrical_collecting_area(self) -> u.cm**2:
+    def geometrical_collecting_area(self) -> u.cm ** 2:
         return self.design.pinhole_area
 
     @property
@@ -310,18 +263,18 @@ Reference pixel: {self.reference_pixel}
         # NOTE: Value of 10 microns based on conversations with A. Caspi regarding
         # expected width. This thickness is different from what was used for calculating
         # the detector efficiency in the original CubIXSS proposal.
-        si = ThinFilmFilter('Si', thickness=10*u.micron, xrt_table=self.xrt_table_name)
-        sio2 = ThinFilmFilter(['Si', 'O'], thickness=50*u.AA, quantities=[1,2], xrt_table=self.xrt_table_name)
-        return sio2.transmissivity(self._energy_no_inf)*(1.0 - si.transmissivity(self._energy_no_inf))
+        si = ThinFilmFilter('Si', thickness=10 * u.micron, xrt_table=self.xrt_table_name)
+        sio2 = ThinFilmFilter(['Si', 'O'], thickness=50 * u.AA, quantities=[1, 2], xrt_table=self.xrt_table_name)
+        return sio2.transmissivity(self._energy_no_inf) * (1.0 - si.transmissivity(self._energy_no_inf))
 
     @property
     @u.quantity_input
-    def effective_area(self) -> u.cm**2:
+    def effective_area(self) -> u.cm ** 2:
         effective_area = (self.geometrical_collecting_area *
                           self.filter_transmission *
                           self.quantum_efficiency *
                           self.grating_efficiency)
-        return np.where(self._energy_out_of_bounds, 0*u.cm**2, effective_area)
+        return np.where(self._energy_out_of_bounds, 0 * u.cm ** 2, effective_area)
 
     @property
     @u.quantity_input
@@ -344,9 +297,9 @@ Reference pixel: {self.reference_pixel}
         wave_response = (self.effective_area *
                          self.electron_per_photon *
                          self.camera_gain)
-        return np.where(self._energy_out_of_bounds, 0*u.Unit('cm2 ct /ph'), wave_response)
+        return np.where(self._energy_out_of_bounds, 0 * u.Unit('cm2 ct /ph'), wave_response)
 
-    def get_wcs(self, observer, roll_angle=90*u.deg):
+    def get_wcs(self, observer, roll_angle=90 * u.deg):
         pc_matrix = pcij_matrix(roll_angle,
                                 self.design.grating_roll_angle,
                                 order=self.spectral_order)
@@ -359,20 +312,10 @@ Reference pixel: {self.reference_pixel}
         wave_interval = self.wavelength_max - self.wavelength_min
         wave_shape = (np.ceil((wave_interval / wave_step).decompose().value).astype(int),)
         return overlappogram_fits_wcs(
-            wave_shape+self.detector_shape,
+            wave_shape + self.detector_shape,
             (self.spatial_plate_scale[0], self.spatial_plate_scale[1], self.spectral_plate_scale),
             reference_pixel=self.reference_pixel,
-            reference_coord=(0*u.arcsec, 0*u.arcsec, 0*u.angstrom),
+            reference_coord=(0 * u.arcsec, 0 * u.arcsec, 0 * u.angstrom),
             pc_matrix=pc_matrix,
             observer=observer,
         )
-
-
-def get_all_filtergram_channels(**kwargs):
-    filtergram_names = [f'filtergram_{i}' for i in range(1, 5)]
-    return [Channel(name, order=0, **kwargs) for name in filtergram_names]
-
-
-def get_all_dispersed_channels(**kwargs):
-    spectral_orders = [-4, -3, -2, -1, 0, 1, 2, 3, 4]
-    return [Channel('spectrogram_1', order, **kwargs) for order in spectral_orders]

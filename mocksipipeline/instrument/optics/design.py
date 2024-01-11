@@ -7,13 +7,12 @@ import astropy.units as u
 import numpy as np
 
 __all__ = [
-    'InstrumentDesign',
-    'nominal_design',
+    'OpticalDesign',
 ]
 
 
 @dataclasses.dataclass
-class InstrumentDesign:
+class OpticalDesign:
     r"""
     A class representing a MOXSI design configuration
 
@@ -49,20 +48,12 @@ class InstrumentDesign:
     grating_roll_angle: u.Quantity[u.degree]
     pixel_size_x: u.Quantity[u.micron] = 7 * u.micron
     pixel_size_y: u.Quantity[u.micron] = 7 * u.micron
-    detector_shape: tuple = (1500, 2000)
+    detector_shape: tuple = (1504, 2000)
     pinhole_diameter: u.Quantity[u.micron] = 44 * u.micron
-    camera_gain: u.Quantity[u.ct/u.electron] = 1.8 * u.ct/u.electron
+    camera_gain: u.Quantity[u.ct / u.electron] = 1.8 * u.ct / u.electron
 
     @property
     @u.quantity_input
-    def pinhole_area(self) -> u.cm**2:
+    def pinhole_area(self) -> u.cm ** 2:
         "Area for a circular pinhole"
-        return np.pi * (self.pinhole_diameter / 2)**2
-
-
-nominal_design = InstrumentDesign(
-    focal_length=19.5*u.cm,
-    grating_focal_length=19.5*u.cm,
-    grating_groove_spacing=1/5000*u.mm,
-    grating_roll_angle=0*u.deg,
-)
+        return np.pi * (self.pinhole_diameter / 2) ** 2
