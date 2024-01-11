@@ -2,7 +2,7 @@ import astropy.units as u
 from overlappy.io import write_overlappogram
 
 from mocksipipeline.detector import project_spectral_cube
-from mocksipipeline.detector.response import Channel
+from mocksipipeline.instrument.optics.response import Channel
 from mocksipipeline.util import read_data_cube
 
 if __name__ == '__main__':

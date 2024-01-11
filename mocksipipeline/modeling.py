@@ -15,8 +15,6 @@ from overlappy.util import strided_array
 from scipy.interpolate import interp1d
 from synthesizAR.instruments.util import extend_celestial_wcs
 
-from mocksipipeline.detector.response import get_all_dispersed_channels
-
 __all__ = [
     'convolve_with_response',
     'project_spectral_cube',
@@ -161,14 +159,12 @@ def project_spectral_cube(spec_cube,
                          unit=unit)
 
 
-def compute_flux_point_source(intensity, location, blur=None, channels=None, **kwargs):
+def compute_flux_point_source(intensity, location, channels, blur=None, **kwargs):
     """
     Compute flux for each channel from a point source.
     """
     electrons = kwargs.pop('electrons', False)
     include_gain = kwargs.pop('include_gain', False)
-    if channels is None:
-        channels = get_all_dispersed_channels()[5:]
     pix_grid, _, _ = channels[0].get_wcs(location.observer, **kwargs).world_to_pixel(location, channels[0].wavelength)
     flux_total = np.zeros(pix_grid.shape)
     cube_list = []

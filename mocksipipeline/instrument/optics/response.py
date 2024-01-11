@@ -8,12 +8,10 @@ from astropy.utils.data import get_pkg_data_filename
 from overlappy.wcs import overlappogram_fits_wcs, pcij_matrix
 from scipy.interpolate import interp1d
 
-from mocksipipeline.detector.filter import ThinFilmFilter
+from mocksipipeline.instrument.optics.filter import ThinFilmFilter
 
 __all__ = [
     'Channel',
-    'get_all_filtergram_channels',
-    'get_all_dispersed_channels',
 ]
 
 
@@ -47,7 +45,7 @@ class Channel:
         self.grating_file = kwargs.pop('grating_file', None)
         if self.grating_file is None:
             self.grating_file = get_pkg_data_filename('data/hetgD1996-11-01greffpr001N0007.fits',
-                                                      package='mocksipipeline.detector')
+                                                      package='mocksipipeline.instrument.optics')
         self.reference_pixel = reference_pixel
 
     def __repr__(self):
@@ -321,13 +319,3 @@ Reference pixel: {self.reference_pixel}
             pc_matrix=pc_matrix,
             observer=observer,
         )
-
-
-def get_all_filtergram_channels(**kwargs):
-    filtergram_names = [f'filtergram_{i}' for i in range(1, 5)]
-    return [Channel(name, order=0, **kwargs) for name in filtergram_names]
-
-
-def get_all_dispersed_channels(**kwargs):
-    spectral_orders = [-4, -3, -2, -1, 0, 1, 2, 3, 4]
-    return [Channel('spectrogram_1', order, **kwargs) for order in spectral_orders]

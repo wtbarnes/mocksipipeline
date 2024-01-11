@@ -12,8 +12,6 @@ from scipy.interpolate import interp1d
 from sunpy.coordinates import Helioprojective, get_earth
 from synthesizAR.atomic.idl import spectrum_to_cube
 
-from mocksipipeline.detector.response import get_all_dispersed_channels
-
 __all__ = [
     'compute_effective_spectra',
     'compute_response_matrix',
@@ -36,7 +34,7 @@ def compute_effective_spectra(spectra, channel):
     return spectrum_to_cube(spectra_eff, channel.wavelength, spectra.axis_world_coords(0)[0])
 
 
-def compute_response_matrix(spectral_table, extent=2500*u.arcsec):
+def compute_response_matrix(spectral_table, instrument_design, extent=2500*u.arcsec):
     r"""
     Compute the MOXSI response matrix for a given spectra.
 
@@ -73,10 +71,10 @@ def compute_response_matrix(spectral_table, extent=2500*u.arcsec):
     extent
     """
     # Compute the effective spectra
-    dispersed_channels = get_all_dispersed_channels()
-    spectra_eff = [compute_effective_spectra(spectral_table, chan) for chan in dispersed_channels]
+    spectra_eff = [compute_effective_spectra(spectral_table, chan) for chan in instrument_design.channel_list]
     # Compute the WCS that we will invert into and that we will invert from
-    shape = tuple(np.ceil((extent / dispersed_channels[0].resolution[::-1]).to_value('pix')).astype(int))
+    plate_scale = instrument_design.channel_list[0].spatial_plate_scale[::-1]
+    shape = tuple(np.ceil((extent / plate_scale).to_value('pix')).astype(int))
     # NOTE: I do not think it matters what this observer is, because ultimately this is just a
     # pixel-to-pixel transformation and thus all of the celestial transforms should factor out.
     observer = get_earth('2000-01-01 00:00:00')
@@ -88,11 +86,11 @@ def compute_response_matrix(spectral_table, extent=2500*u.arcsec):
     header = sunpy.map.make_fitswcs_header(shape,
                                            reference_coordinate,
                                            reference_pixel=(np.array(shape[::-1]) - 1)/2*u.pix,
-                                           scale=dispersed_channels[0].resolution,
+                                           scale=plate_scale,
                                            rotation_angle=roll_angle)
     wcs_prime = astropy.wcs.WCS(header=header)
     wcs_dispersed = [chan.get_wcs(observer, roll_angle=roll_angle, dispersion_angle=0*u.deg)
-                     for chan in dispersed_channels]
+                     for chan in instrument_design.channel_list]
     # Find primed pixels (sometimes called "field angles"). This is a row in the primed FOV that is
     # aligned with the dispersion direction
     # We convert to world coordinates as an intermediate step in order to perform the world-to-pixel
@@ -106,11 +104,11 @@ def compute_response_matrix(spectral_table, extent=2500*u.arcsec):
     response_matrix_shape = (wcs_prime.array_shape[1:] +
                              wcs_dispersed[0].array_shape[2:] +
                              spectra_eff[0].data.shape[:1] +
-                             (len(dispersed_channels),))
+                             (len(instrument_design.channel_list),))
     response_matrix = np.zeros(response_matrix_shape)
     # Connect to Dask cluster
     client = distributed.get_client()
-    for i_order, (chan, wcs_d) in enumerate(zip(dispersed_channels, wcs_dispersed)):
+    for i_order, (chan, wcs_d) in enumerate(zip(instrument_design.channel_list, wcs_dispersed)):
         pixel_indices = client.gather(
                             client.map(lambda x: np.array(wcs_d.world_to_array_index(coord_prime, x)[2]),
                                        chan.wavelength)
@@ -126,7 +124,7 @@ def compute_response_matrix(spectral_table, extent=2500*u.arcsec):
         dims=['pixel_fov', 'pixel_detector', 'log_temperature', 'spectral_order'],
         coords={
             'log_temperature': np.log10(spectral_table.axis_world_coords(0)[0].to_value('K')),
-            'spectral_order': [chan.spectral_order for chan in dispersed_channels],
+            'spectral_order': [chan.spectral_order for chan in instrument_design.channel_list],
         },
         attrs={
             'unit': spectra_eff[0].unit.to_string(format='fits'),

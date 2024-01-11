@@ -5,18 +5,26 @@ import astropy.units as u
 import numpy as np
 import pytest
 
-from mocksipipeline.detector.response import (Channel,
-                                              get_all_dispersed_channels,
-                                              get_all_filtergram_channels)
+from mocksipipeline.instrument.configuration import moxsi_short
+from mocksipipeline.instrument.optics.response import Channel
 
-ALL_CHANNELS = get_all_dispersed_channels() + get_all_filtergram_channels()
+ALL_CHANNELS = moxsi_short.channel_list
+
+@pytest.fixture
+def filters():
+    return moxsi_short.channel_list[0].filters
+
+
+@pytest.fixture
+def design():
+    return moxsi_short.channel_list[0].design
 
 
 @pytest.mark.parametrize(
         ('name', 'order'),
         [(f'filtergram_{i}', 0) for i in range(1, 5)]+[('spectrogram_1', i) for i in range(-4, 5, 1)])
-def test_channel_creation(name, order):
-    chan = Channel(name, order=order)
+def test_channel_creation(name, order, filters, design):
+    chan = Channel(name, filters, order, design, (0,0))
     assert isinstance(chan, Channel)
 
 
@@ -40,6 +48,6 @@ def test_wavelength_response(channel):
     assert channel.wavelength_response.unit.is_equivalent('cm2 ct / ph')
 
 
-@pytest.mark.parametrize('channel', get_all_filtergram_channels())
+@pytest.mark.parametrize('channel', moxsi_short.channel_list[:4])
 def test_filtergrams_grating_efficiency_one(channel):
     assert np.all(channel.grating_efficiency == 1)
