@@ -4,7 +4,6 @@ Instrument design configurations
 import dataclasses
 
 import astropy.units as u
-import numpy as np
 
 __all__ = [
     'OpticalDesign',
@@ -18,6 +17,7 @@ class OpticalDesign:
 
     Parameters
     ----------
+    name: `str`
     focal_length: `~astropy.units.Quantity`
         The distance from the pinhole to the detector
     grating_focal_length: `~astropy.units.Quantity`
@@ -36,12 +36,11 @@ class OpticalDesign:
     detector_shape: `tuple`, optional
         Number of pixels in the vertical and horizontal direction
         (in that order) on the detector.
-    pinhole_diameter: `~astropy.units.Quantity`, optional
-        Diameter of the circular pinhole
     camera_gain: `~astropy.units.Quantity`, optional
         Gain of the camera that determines conversion between electrons
         and DN in the detector.
     """
+    name: str
     focal_length: u.Quantity[u.cm]
     grating_focal_length: u.Quantity[u.cm]
     grating_groove_spacing: u.Quantity[u.mm]
@@ -49,11 +48,22 @@ class OpticalDesign:
     pixel_size_x: u.Quantity[u.micron] = 7 * u.micron
     pixel_size_y: u.Quantity[u.micron] = 7 * u.micron
     detector_shape: tuple = (1504, 2000)
-    pinhole_diameter: u.Quantity[u.micron] = 44 * u.micron
     camera_gain: u.Quantity[u.ct / u.electron] = 1.8 * u.ct / u.electron
 
-    @property
-    @u.quantity_input
-    def pinhole_area(self) -> u.cm ** 2:
-        "Area for a circular pinhole"
-        return np.pi * (self.pinhole_diameter / 2) ** 2
+    def __repr__(self):
+        return f"""MOXSI Optical Design {self.name}
+=========================================
+focal length: {self.focal_length}
+
+Grating
+-------
+focal length: {self.grating_focal_length}
+groove spacing: {self.grating_groove_spacing}
+roll angle {self.grating_roll_angle}
+
+Detector
+--------
+pixel size: x={self.pixel_size_x}, y={self.pixel_size_y}
+shape: {self.detector_shape}
+camera gain: {self.camera_gain}
+"""
