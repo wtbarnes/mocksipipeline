@@ -2,6 +2,7 @@
 Class for holding full instrument design
 """
 import dataclasses
+import pprint
 
 from mocksipipeline.instrument.optics.response import Channel
 
@@ -10,6 +11,11 @@ from mocksipipeline.instrument.optics.response import Channel
 class InstrumentDesign:
     name: str
     channel_list: list[Channel]
+
+    def __post_init__(self):
+        # Each channel must have the same optical design
+        if not all([c.design==self.channel_list[0].design for c in self.channel_list]):
+            raise ValueError('All channels must have the same optical design.')
 
     def __add__(self, instrument):
         if not isinstance(instrument, InstrumentDesign):
@@ -25,8 +31,13 @@ class InstrumentDesign:
     def __repr__(self):
         channel_reprs = '\n'.join(str(c) for c in self.channel_list)
         return f"""MOXSI Instrument Configuration {self.name}
-                   ------------------------------------------
-{self.optical_design}
+-------------------------------------------------------------
+
+{pprint.pformat(self.optical_design)}
+
+Channels
+========
+Number of channels: {len(self.channel_list)}
 
 {channel_reprs}
 """

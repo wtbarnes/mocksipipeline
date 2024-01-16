@@ -73,7 +73,7 @@ def compute_response_matrix(spectral_table, instrument_design, extent=2500*u.arc
     # Compute the effective spectra
     spectra_eff = [compute_effective_spectra(spectral_table, chan) for chan in instrument_design.channel_list]
     # Compute the WCS that we will invert into and that we will invert from
-    plate_scale = instrument_design.channel_list[0].spatial_plate_scale[::-1]
+    plate_scale = instrument_design.optical_design.spatial_plate_scale[::-1]
     shape = tuple(np.ceil((extent / plate_scale).to_value('pix')).astype(int))
     # NOTE: I do not think it matters what this observer is, because ultimately this is just a
     # pixel-to-pixel transformation and thus all of the celestial transforms should factor out.
