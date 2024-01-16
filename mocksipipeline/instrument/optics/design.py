@@ -4,6 +4,7 @@ Instrument design configurations
 import dataclasses
 
 import astropy.units as u
+import numpy as np
 
 __all__ = [
     'OpticalDesign',
@@ -50,20 +51,46 @@ class OpticalDesign:
     detector_shape: tuple = (1504, 2000)
     camera_gain: u.Quantity[u.ct / u.electron] = 1.8 * u.ct / u.electron
 
-    def __repr__(self):
-        return f"""MOXSI Optical Design {self.name}
-=========================================
-focal length: {self.focal_length}
+    def __eq__(self, value):
+        if not isinstance(value, OpticalDesign):
+            raise TypeError(f'Cannot compare equality with type {type(value)}')
+        dict_1 = dataclasses.asdict(self)
+        dict_2 = dataclasses.asdict(value)
+        return dict_1 == dict_2
 
-Grating
--------
-focal length: {self.grating_focal_length}
-groove spacing: {self.grating_groove_spacing}
-roll angle {self.grating_roll_angle}
+    @property
+    @u.quantity_input
+    def spatial_plate_scale(self) -> u.Unit('arcsec / pix'):
+        pixel_size = u.Quantity([self.pixel_size_x, self.pixel_size_y]) / u.pixel
+        return (pixel_size / self.focal_length).decompose() * u.radian
 
-Detector
---------
-pixel size: x={self.pixel_size_x}, y={self.pixel_size_y}
-shape: {self.detector_shape}
-camera gain: {self.camera_gain}
-"""
+    @property
+    @u.quantity_input
+    def pixel_solid_angle(self) -> u.Unit('steradian / pix'):
+        """
+        This is the solid angle per pixel
+        """
+        area = (self.spatial_plate_scale[0] * u.pix) * (self.spatial_plate_scale[1] * u.pix)
+        return area / u.pix
+
+    @property
+    @u.quantity_input
+    def spectral_plate_scale(self) -> u.Unit('Angstrom / pix'):
+        r"""
+        The spectral plate scale is computed as,
+
+        .. math::
+
+            \Delta\lambda = \frac{d(\Delta x\|\cos{\gamma}\| + \Delta y\|\sin{\gamma}\|)}{f^\prime}
+
+        where :math:`\gamma` is the grating roll angle and :math`\Delta x,\Delta y`
+        are the spatial plate scales, :math:`d` is the groove spacing of the grating, and
+        :math:`f^\prime` is the distance between the grating and the detector.
+        """
+        # NOTE: Purposefully not dividing by the spectral order here as this is
+        # meant to only represent the first order spectral plate scale due to how we
+        # express the wavelength axis in the WCS as a "dummy" third axis. The additional dispersion
+        # at orders > 1 is handled by the spectral order term in the PC_ij matrix.
+        eff_pix_size = (self.pixel_size_x * np.fabs(np.cos(self.grating_roll_angle)) +
+                        self.pixel_size_y * np.fabs(np.sin(self.grating_roll_angle))) / u.pix
+        return self.grating_groove_spacing * (eff_pix_size / self.grating_focal_length).decompose()
