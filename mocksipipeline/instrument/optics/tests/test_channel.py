@@ -20,11 +20,16 @@ def design():
     return moxsi_short.channel_list[0].design
 
 
+@pytest.fixture
+def aperture():
+    return moxsi_short.channel_list[0].aperture
+
+
 @pytest.mark.parametrize(
         ('name', 'order'),
         [(f'filtergram_{i}', 0) for i in range(1, 5)]+[('spectrogram_1', i) for i in range(-4, 5, 1)])
-def test_channel_creation(name, order, filters, design):
-    chan = Channel(name, filters, order, design, (0,0))
+def test_channel_creation(name, order, filters, design, aperture):
+    chan = Channel(name, filters, order, design, aperture, (0,0))
     assert isinstance(chan, Channel)
 
 
