@@ -1,12 +1,17 @@
 """
 Classes for computing wavelength response functions for MOXSI
 """
+from functools import cached_property
+
 import astropy.table
 import astropy.units as u
 import numpy as np
+from astropy.coordinates import SkyCoord
 from astropy.utils.data import get_pkg_data_filename
 from overlappy.wcs import overlappogram_fits_wcs, pcij_matrix
 from scipy.interpolate import interp1d
+from sunpy.coordinates import get_earth
+from sunpy.map import solar_angular_radius
 
 from mocksipipeline.instrument.optics.filter import ThinFilmFilter
 
@@ -126,11 +131,13 @@ aperture: {self.aperture}
     @property
     @u.quantity_input
     def wavelength(self) -> u.angstrom:
-        # NOTE: The resolution of the wavelength array is adjusted according to the
-        # spectral order so that when reprojecting, we do not have gaps in the spectra
-        # as the wavelength array gets stretched across the detector
         delta_wave = self.spectral_plate_scale * u.pix
-        delta_wave /= 2 * (1 if self.spectral_order == 0 else np.fabs(self.spectral_order))
+        if self.spectral_order != 0:
+            # NOTE: The resolution of the wavelength array is adjusted according to the
+            # spectral order so that when reprojecting, we do not have gaps in the spectra
+            # as the wavelength array gets stretched across the detector in the case of the
+            # dispersed images.
+            delta_wave /= 2 * np.fabs(self.spectral_order)
         return np.arange(
             self.wavelength_min.to_value('AA'),
             (self.wavelength_max + delta_wave).to_value('AA'),
@@ -142,12 +149,23 @@ aperture: {self.aperture}
     def wavelength_min(self) -> u.Angstrom:
         return 0 * u.Angstrom  # dispersion must start at 0
 
-    @property
+    @cached_property
     @u.quantity_input
     def wavelength_max(self) -> u.Angstrom:
-        # this is the maximum wavelength at which emission from
-        # the far limb of the sun will still fall on the detector
-        return 90 * u.Angstrom
+        # Estimate the maximum wavelength that would fall on the detector
+        # by assuming that the farthest a source location could be is off
+        # limb by 25% of the solar radius. The reason for doing this per
+        # spectral order is to minimize the number of wavelengths that are
+        # projected completely off the detector.
+        obs = get_earth('2020-01-01')
+        origin = SkyCoord(Tx=0*u.arcsec, Ty=0*u.arcsec, frame='helioprojective', observer=obs)
+        # NOTE: This assumes the origin falls in the middle of the detector
+        width_pixel = (self.detector_shape[1] / 2)* u.pix
+        width_pixel += 1.25 * solar_angular_radius(origin) / self.spatial_plate_scale[0]
+        wave_max = width_pixel * self.spectral_plate_scale
+        if self.spectral_order != 0:
+            wave_max /= np.fabs(self.spectral_order)
+        return wave_max
 
     @property
     @u.quantity_input
