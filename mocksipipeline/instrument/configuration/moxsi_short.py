@@ -155,7 +155,8 @@ for order in orders:
                    filters=[al_thin, al_oxide],
                    reference_pixel=(slot_ref_pix+(0,))*u.pix,
                    design=short_design,
-                   aperture=SlotAperture((44, 440)*u.micron)
+                   aperture=SlotAperture(diameter=44 * u.micron,
+                                         center_to_center_distance=440 * u.micron)
                    )
     spectrograms.append(chan)
     spectrograms.append(slot)

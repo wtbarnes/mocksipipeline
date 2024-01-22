@@ -16,32 +16,35 @@ class AbstractAperture(abc.ABC):
 
     @abc.abstractproperty
     @u.quantity_input
-    def area(self) -> u.cm**2:
+    def area(self) -> u.cm ** 2:
         ...
 
 
 class SlotAperture(AbstractAperture):
     """
-    Rectangular MOXSI aperture
+    Slot MOXSI aperture
 
     Parameters
     ----------
-    dimensions: `~astropy.units.Quantity`
+    diameter: `~astropy.units.Quantity`
+    center_to_center_distance: `~astropy.units.Quantity`
     """
 
     @u.quantity_input
-    def __init__(self, dimensions: u.cm):
-        self.dimensions = dimensions
+    def __init__(self, diameter: u.cm, center_to_center_distance: u.cm):
+        self.diameter = diameter
+        self.center_to_center_distance = center_to_center_distance
 
     @property
     @u.quantity_input
-    def area(self) -> u.cm**2:
-        return self.dimensions[0]*self.dimensions[1]
+    def area(self) -> u.cm ** 2:
+        return np.pi * (self.diameter/2) ** 2 + self.diameter * self.center_to_center_distance
 
     def __repr__(self):
-        return f"""Rectangular Slot Aperture
+        return f"""Slot Aperture
 -----------------------------
-dimensions: {self.dimensions}
+diameter: {self.diameter}
+center to center distance: {self.center_to_center_distance}
 area: {self.area}
 """
 
@@ -61,7 +64,7 @@ class CircularAperture(AbstractAperture):
 
     @property
     @u.quantity_input
-    def area(self) -> u.cm**2:
+    def area(self) -> u.cm ** 2:
         return np.pi * (self.diameter / 2) ** 2
 
     def __repr__(self):
