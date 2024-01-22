@@ -6,7 +6,7 @@ import numpy as np
 import astropy.units as u
 
 from mocksipipeline.instrument.design import InstrumentDesign
-from mocksipipeline.instrument.optics.aperture import CircularAperture
+from mocksipipeline.instrument.optics.aperture import CircularAperture, SlotAperture
 from mocksipipeline.instrument.optics.configuration import short_design
 from mocksipipeline.instrument.optics.filter import ThinFilmFilter
 from mocksipipeline.instrument.optics.response import Channel
@@ -16,6 +16,7 @@ __all__ = [
     'moxsi_short',
     'moxsi_short_filtergrams',
     'moxsi_short_spectrogram',
+    'moxsi_short_slot'
 ]
 
 # Build needed filters
@@ -117,23 +118,27 @@ slot_ref_pix = tuple(detector_center - [0, slot_y / short_design.pixel_size_y])
 filtergram_1 = Channel(name='filtergram_1',
                        order=0,
                        filters=be_thin,
-                       reference_pixel=filtergram_ref_pix[0],
-                       design=short_design)
+                       reference_pixel=(filtergram_ref_pix[0]+(0,))*u.pix,
+                       design=short_design,
+                       aperture=pinhole)
 filtergram_2 = Channel(name='filtergram_2',
                        order=0,
                        filters=be_med,
-                       reference_pixel=filtergram_ref_pix[1],
-                       design=short_design)
+                       reference_pixel=(filtergram_ref_pix[1]+(0,))*u.pix,
+                       design=short_design,
+                       aperture=pinhole)
 filtergram_3 = Channel(name='filtergram_3',
                        order=0,
                        filters=be_thick,
-                       reference_pixel=filtergram_ref_pix[2],
-                       design=short_design)
+                       reference_pixel=(filtergram_ref_pix[2]+(0,))*u.pix,
+                       design=short_design,
+                       aperture=pinhole)
 filtergram_4 = Channel(name='filtergram_4',
                        order=0,
                        filters=[al_oxide, al_thin, polymide],
-                       reference_pixel=filtergram_ref_pix[3],
-                       design=short_design)
+                       reference_pixel=(filtergram_ref_pix[3]+(0,))*u.pix,
+                       design=short_design,
+                       aperture=pinhole)
 
 # Set up spectrograms
 
@@ -142,22 +147,20 @@ for order in orders:
     chan = Channel(name='spectrogram_1',
                    order=order,
                    filters=[al_thin, al_oxide],
-                   reference_pixel=dispersed_ref_pix,
-                   design=short_design)
+                   reference_pixel=(dispersed_ref_pix+(0,))*u.pix,
+                   design=short_design,
+                   aperture=pinhole)
     slot = Channel(name='spectrogram_slot',
                    order=order,
                    filters=[al_thin, al_oxide],
-                   reference_pixel=slot_ref_pix,
-                   design=OpticalDesign(
-                       focal_length=short_design.focal_length,
-                       grating_focal_length=short_design.grating_focal_length,
-                       grating_groove_spacing=short_design.grating_groove_spacing,
-                       grating_roll_angle=short_design.grating_roll_angle,
-                       pinhole_diameter=(44, 440) * u.micron
-                   )
+                   reference_pixel=(slot_ref_pix+(0,))*u.pix,
+                   design=short_design,
+                   aperture=SlotAperture((44, 440)*u.micron)
                    )
     spectrograms.append(chan)
     spectrograms.append(slot)
 
 # Build instrument configuration
-moxsi_short_slot = InstrumentDesign([filtergram_1, filtergram_2, filtergram_3, filtergram_4] + spectrograms)
+moxsi_short_slot = InstrumentDesign(
+    name='slotty_moxsi',
+    channel_list=[filtergram_1, filtergram_2, filtergram_3, filtergram_4] + spectrograms)

@@ -24,7 +24,7 @@ class InstrumentDesign:
             width = solar_radius / channel.spatial_plate_scale[0]
             height = solar_radius / channel.spatial_plate_scale[1]
             ax.add_patch(
-                Ellipse(xy=channel.reference_pixel, width=width.value * 2, height=height.value * 2)
+                Ellipse(xy=channel.reference_pixel[:2].value, width=width.value * 2, height=height.value * 2)
             )
 
         # this sets the plot limits to the detector shape of the last channel.  right now each channel could have a
