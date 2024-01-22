@@ -22,24 +22,28 @@ class Channel:
     Parameters
     ----------
     name: `str`
-        Name of the filtergram. This determines the position of the image on the detector.
-    order: `int`, optional
-        Spectral order for the channel. By default, this is 0.
-    optical_design: `~mocksipipeline.detector.design.OpticalDesign`, optional
-        Instrument optical design. If not specified, will default to
-        `~mocksipipeline.detector.design.nominal_design`
+        Name of the channel. If this is a filtergram channel, the word "filtergram"
+        should appear somewhere in it. This is used to set the grating efficiency
+        to 1 since the filtergram images do not pass through the dispersive grating.
     filters: `~mocksipipeline.detector.filter.ThinFilmFilter` or list, optional
         If multiple filters are specified, the filter transmission is computed as
         the product of the transmissivities. If not specified, fall back to default
         filters for a particular channel.
+    order: `int`, optional
+        Spectral order for the channel. By default, this is 0.
+    design: `~mocksipipeline.detector.design.OpticalDesign`, optional
+        Instrument optical design
+    aperture: `~mocksipipeline.instrument.optics.aperture.AbstractAperture`
+        Aperture model used for calculating geometrical area
     reference_pixel: `tuple`,
         Pixel location of solar image in cartesian coordinates
     """
 
-    def __init__(self, name, filters, order, design, reference_pixel, **kwargs):
+    def __init__(self, name, filters, order, design, aperture, reference_pixel, **kwargs):
         self.name = name
         self.spectral_order = order
         self.design = design
+        self.aperture = aperture
         self.xrt_table_name = 'Chantler'  # Intentionally hardcoding this for now
         self.filters = filters
         self.grating_file = kwargs.pop('grating_file', None)
@@ -58,8 +62,8 @@ Wavelength range: [{self.wavelength_min}, {self.wavelength_max}]
 Spectral plate scale: {self.spectral_plate_scale}
 Spatial plate scale: {self.spatial_plate_scale}
 Reference pixel: {self.reference_pixel}
+aperture: {self.aperture}
 """
-
 
     @property
     def filters(self):
@@ -95,40 +99,17 @@ Reference pixel: {self.reference_pixel}
     @property
     @u.quantity_input
     def spatial_plate_scale(self) -> u.Unit('arcsec / pix'):
-        pixel_size = u.Quantity([self.design.pixel_size_x, self.design.pixel_size_y]) / u.pixel
-        return (pixel_size / self.design.focal_length).decompose() * u.radian
+        return self.design.spatial_plate_scale
 
     @property
     @u.quantity_input
     def pixel_solid_angle(self) -> u.Unit('steradian / pix'):
-        """
-        This is the solid angle per pixel
-        """
-        area = (self.spatial_plate_scale[0] * u.pix) * (self.spatial_plate_scale[1] * u.pix)
-        return area / u.pix
+        return self.design.pixel_solid_angle
 
     @property
     @u.quantity_input
     def spectral_plate_scale(self) -> u.Unit('Angstrom / pix'):
-        r"""
-        The spectral plate scale is computed as,
-
-        .. math::
-
-            \Delta\lambda = \frac{d(\Delta x\|\cos{\gamma}\| + \Delta y\|\sin{\gamma}\|)}{f^\prime}
-
-        where :math:`\gamma` is the grating roll angle and :math`\Delta x,\Delta y`
-        are the spatial plate scales, :math:`d` is the groove spacing of the grating, and
-        :math:`f^\prime` is the distance between the grating and the detector.
-        """
-        # NOTE: Purposefully not dividing by the spectral order here as this is
-        # meant to only represent the first order spectral plate scale due to how we
-        # express the wavelength axis in the WCS as a "dummy" third axis. The additional dispersion
-        # at orders > 1 is handled by the spectral order term in the PC_ij matrix.
-        eff_pix_size = (self.design.pixel_size_x * np.fabs(np.cos(self.design.grating_roll_angle)) +
-                        self.design.pixel_size_y * np.fabs(np.sin(self.design.grating_roll_angle))) / u.pix
-        return (self.design.grating_groove_spacing *
-                (eff_pix_size / self.design.grating_focal_length).decompose())
+        return self.design.spectral_plate_scale
 
     @property
     def detector_shape(self):
@@ -201,7 +182,7 @@ Reference pixel: {self.reference_pixel}
     @property
     @u.quantity_input
     def geometrical_collecting_area(self) -> u.cm ** 2:
-        return self.design.pinhole_area
+        return self.aperture.area
 
     @property
     @u.quantity_input
