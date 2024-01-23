@@ -16,6 +16,7 @@ __all__ = [
     'moxsi_short_spectrogram',
 ]
 
+
 # Build needed filters
 table = 'Chantler'
 be_thin = ThinFilmFilter('Be', thickness=8 * u.micron, xrt_table=table)
