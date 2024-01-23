@@ -37,7 +37,7 @@ slot = SlotAperture(diameter=pinhole.diameter,
                     center_to_center_distance=9*np.pi*pinhole.diameter/4)
 
 # Set up reference pixels
-detector_center = np.array(short_design.detector_shape)[::-1] // 2
+detector_center = np.array(short_design.detector_shape)[::-1] / 2
 # Values pulled from mechanical drawing 1/11/24
 filtergram_y = 3.51 * u.mm
 filtergram_x = (np.arange(4) * 3.32 - 1.5 * 3.32) * u.mm
