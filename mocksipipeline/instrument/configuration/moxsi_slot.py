@@ -33,8 +33,14 @@ al_oxide = ThinFilmFilter(elements=['Al', 'O'], quantities=[2, 3], thickness=7.5
 
 # Set up apertures
 pinhole = CircularAperture(44*u.micron)
+# NOTE: center-to-center distance is set such that the slot area is 10 times the pinhole area
 slot = SlotAperture(diameter=pinhole.diameter,
                     center_to_center_distance=9*np.pi*pinhole.diameter/4)
+# FIXME: Adding an additional FWHM parameter here to be used in the PSF calculation
+# in the pipeline. In general, these need an actual PSF kernel that should be implemented
+# on the aperture object rather than just a single numerical attribute
+pinhole.psf_fwhm = [40, 40] * u.arcsec
+slot.psf_fwhm = pinhole.psf_fwhm * np.array([(slot.center_to_center_distance/slot.diameter).decompose(), 1])
 
 # Set up reference pixels
 detector_center = np.array(short_design.detector_shape)[::-1] / 2
