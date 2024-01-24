@@ -9,7 +9,7 @@ import ndcube
 import numpy as np
 from astropy.convolution import Gaussian1DKernel, convolve
 from astropy.stats import gaussian_fwhm_to_sigma
-from astropy.wcs.utils import pixel_to_pixel, wcs_to_celestial_frame
+from astropy.wcs.utils import pixel_to_pixel
 from ndcube.extra_coords import QuantityTableCoordinate
 from overlappy.util import strided_array
 from scipy.interpolate import interp1d
@@ -96,8 +96,9 @@ def convolve_with_response(cube, channel, electrons=True, include_gain=False):
     return ndcube.NDCube(data_interp, wcs=new_wcs, meta=meta, unit=unit)
 
 
-def project_spectral_cube(spec_cube,
+def project_spectral_cube(instr_cube,
                           channel,
+                          observer,
                           dt=1*u.s,
                           interval=20*u.s,
                           convert_to_dn=False,
@@ -116,9 +117,6 @@ def project_spectral_cube(spec_cube,
         If True, sum counts in DN. Poisson sampling will still be done
         in photon space
     """
-    # Convert to instrument units
-    observer = wcs_to_celestial_frame(spec_cube.wcs).observer
-    instr_cube = convolve_with_response(spec_cube, channel, electrons=False, include_gain=False)
     # Sample distribution
     lam = (instr_cube.data * instr_cube.unit * u.pix * dt).to_value('photon')
     if chunks is None:
