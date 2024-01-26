@@ -14,6 +14,11 @@ def apply_psf(cube, channel):
     # FIXME: This is just a placeholder PSF calculation. Need to implement an actual
     # convolution with a model PSF that more accurately captures the effect of the slot
     # on the spatial resolution
+    # NOTE: By applying the PSF on the spectral cube, we are assuming that the pixel grid
+    # here is aligned with the pixel grid of the detector. The PSF FWHM has been carefully
+    # constructed to account for this. In general, we should figure out a way to define
+    # the PSF kernel on the zeroth order detector grid and transform it to this coordinate
+    # system.
     psf_sigma = channel.aperture.psf_fwhm * gaussian_fwhm_to_sigma / channel.spatial_plate_scale
     _ = scipy.ndimage.gaussian_filter(cube.data,
                                       psf_sigma.to_value('pixel')[::-1],
@@ -34,7 +39,7 @@ if __name__ == '__main__':
     # Read in spectral cube
     spec_cube = read_data_cube(snakemake.input[0])
     # Convolve with instrument response function
-    instr_cube = convolve_with_response(spec_cube, channel, electrons=False, include_gain=False)
+    instr_cube = convolve_with_response(spec_cube, channel, include_gain=False)
     # Apply channel-dependent PSF
     # PSF convolution calculation goes here
     instr_cube = apply_psf(instr_cube, channel)

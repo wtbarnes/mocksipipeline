@@ -22,7 +22,7 @@ __all__ = [
 ]
 
 
-def convolve_with_response(cube, channel, electrons=True, include_gain=False):
+def convolve_with_response(cube, channel, include_gain=False):
     """
     Convolve spectral cube with wavelength response to convert spectra to instrument units.
 
@@ -30,8 +30,6 @@ def convolve_with_response(cube, channel, electrons=True, include_gain=False):
     ----------
     cube : `ndcube.NDCube`
     channel : `Channel`
-    electrons : `bool`, optional
-        If True, include conversion factor from photons to electrons.
     include_gain : `bool`, optional
         If True, include conversion fractor from electrons to DN. Cannot be true
         if `electrons` is False.
@@ -43,10 +41,8 @@ def convolve_with_response(cube, channel, electrons=True, include_gain=False):
     """
     # Compute instrument response
     response = channel.effective_area
-    if electrons:
-        response *= channel.electron_per_photon
-        if include_gain:
-            response *= channel.camera_gain
+    if include_gain:
+        response = channel.wavelength_response
     # Multiply by the spatial plate scale (factor of sr)
     response *= channel.pixel_solid_angle
     # NOTE: multiplying by the spacing of the wavelength array as this is
@@ -81,8 +77,8 @@ def convolve_with_response(cube, channel, electrons=True, include_gain=False):
     meta.pop('BUNIT', None)
 
     # Construct new WCS for the modified wavelength axis
-    # NOTE: When there is only one axis that corresponds to wavlength, then
-    # just dconstruct a new wavelength axis
+    # NOTE: When there is only one axis that corresponds to wavelength, then
+    # just construct a new wavelength axis
     if len(cube.data.shape) == 1:
         new_wcs = QuantityTableCoordinate(channel.wavelength,
                                           names='wavelength',
@@ -135,6 +131,7 @@ def project_spectral_cube(instr_cube,
         # NOTE: we can select the relevant conversion factors this way because the wavelength
         # axis of lam is the same as channel.wavelength and thus their indices are aligned
         ct_per_photon = channel.electron_per_photon * channel.camera_gain
+        ct_per_photon = np.where(channel._energy_out_of_bounds, 0*u.Unit('ct /ph'), ct_per_photon)
         weights = weights * ct_per_photon.to_value('ct / ph')[idx_nonzero[0]]
         unit = 'ct'
     # Map counts to detector coordinates
@@ -161,13 +158,12 @@ def compute_flux_point_source(intensity, location, channels, blur=None, **kwargs
     """
     Compute flux for each channel from a point source.
     """
-    electrons = kwargs.pop('electrons', False)
     include_gain = kwargs.pop('include_gain', False)
     pix_grid, _, _ = channels[0].get_wcs(location.observer, **kwargs).world_to_pixel(location, channels[0].wavelength)
     flux_total = np.zeros(pix_grid.shape)
     cube_list = []
     for channel in channels:
-        flux = convolve_with_response(intensity, channel, electrons=electrons, include_gain=include_gain)
+        flux = convolve_with_response(intensity, channel, include_gain=include_gain)
         flux.meta['spectral_order'] = channel.spectral_order
         _pix_grid, _, _ = channel.get_wcs(location.observer, **kwargs).world_to_pixel(location, channel.wavelength)
         flux_total += np.interp(pix_grid, _pix_grid, flux.data)
