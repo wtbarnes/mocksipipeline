@@ -76,7 +76,7 @@ class XRTSynopticClient(GenericClient):
 
     def _scrape_fits_files_for_timerange(self, matchdict):
         # TODO: add comment about why we have to do this
-        fits_base_url = r'http://solar.physics.montana.edu/HINODE/XRT/SCIA/synop_official/'
+        fits_base_url = r'https://xrt.cfa.harvard.edu/data_products/Level2_Synoptics/'
         fits_pattern = r'%Y/%m/%d/H%H00/comp_XRT%Y%m%d_%H%M%S.(\d){1}.fits'
         fits_scraper = Scraper(fits_base_url+fits_pattern, regex=True)
         fits_urls = fits_scraper.filelist(TimeRange(matchdict['Start Time'], b=matchdict['End Time']))
