@@ -11,9 +11,9 @@ import astropy.wcs
 import numpy as np
 import sunpy.map
 from astropy.coordinates import SkyCoord
-from astropy.stats import gaussian_fwhm_to_sigma
-from scipy.ndimage import gaussian_filter
 from sunpy.coordinates import Helioprojective
+
+import mocksipipeline.instrument.configuration
 
 
 def apply_instrument_corrections(smap, pointing_table, correction_table):
@@ -34,10 +34,13 @@ def apply_instrument_corrections(smap, pointing_table, correction_table):
     return smap
 
 
-def build_new_header(smap, new_frame, new_shape, new_scale: u.arcsec/u.pix):
+def build_new_header(smap, new_frame, new_scale: u.arcsec/u.pix):
     # NOTE: by default, the reference pixel will be set such that this coordinate
     # corresponds to the center of the image.
     ref_coord = SkyCoord(0, 0, unit='arcsec', frame=new_frame)
+    # Construct a new shape that encompasses the full disk
+    extent = 2 * sunpy.map.solar_angular_radius(ref_coord) * 1.35
+    new_shape = tuple(np.ceil((extent / new_scale[::-1]).to_value('pix')).astype(int))
     new_header = sunpy.map.make_fitswcs_header(
         new_shape,
         ref_coord,
@@ -80,21 +83,10 @@ def reproject_map(smap, new_header):
     return sunpy.map.Map(new_data, new_header)
 
 
-def convolve_with_psf(smap, psf_width):
-    # PSF width is specified in order (x-like, y-like) but
-    # gaussian_filter expects array index ordering
-    w = psf_width.to_value('pixel')[::-1]
-    return smap._new_instance(gaussian_filter(smap.data, w), smap.meta)
-
-
 if __name__ == '__main__':
-    # Derive full-disk shape and scale from config
-    new_scale = np.array([
-        float(snakemake.config['plate_scale_x']),
-        float(snakemake.config['plate_scale_y']),
-    ]) * u.arcsec / u.pix
-    extent = float(snakemake.config['full_disk_extent']) * u.arcsec
-    new_shape = tuple(np.ceil((extent / new_scale[::-1]).to_value('pix')).astype(int))
+    # Load the instrument design in order to get the appropriate scale to reproject to
+    instrument_design = getattr(mocksipipeline.instrument.configuration, snakemake.config['instrument_design'])
+    new_scale = instrument_design.optical_design.spatial_plate_scale
     # Replace negative values with zeros
     m = sunpy.map.Map(snakemake.input[0])
     m = m._new_instance(np.where(m.data < 0, 0, m.data), m.meta)
@@ -105,12 +97,8 @@ if __name__ == '__main__':
     # Reproject map to common WCS
     with asdf.open(snakemake.input[1]) as af:
         ref_frame = af.tree['frame']
-    new_header = build_new_header(m, ref_frame, new_shape, new_scale)
+    new_header = build_new_header(m, ref_frame, new_scale)
     m = reproject_map(m, new_header)
-    # Convolve with PSF
-    psf_fwhm = float(snakemake.config['psf_fwhm']) * u.arcsec
-    psf_width = psf_fwhm * gaussian_fwhm_to_sigma / new_scale
-    m = convolve_with_psf(m, psf_width)
     # Save map
     output_dir = pathlib.Path(snakemake.output[0]).parent
     output_dir.mkdir(parents=True, exist_ok=True)

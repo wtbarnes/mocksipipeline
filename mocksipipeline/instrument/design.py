@@ -49,6 +49,9 @@ class InstrumentDesign:
         combined_name = f'{self.name}+{instrument.name}'
         return InstrumentDesign(combined_name, self.channel_list+instrument.channel_list)
 
+    def __getitem__(self, value):
+        return {f'{c.name}_{c.spectral_order}': c for c in self.channel_list}[value]
+
     @property
     def optical_design(self):
         # All channels will have the same optical design

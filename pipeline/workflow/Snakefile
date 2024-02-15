@@ -1,37 +1,20 @@
 import pathlib
 
+import mocksipipeline.instrument.configuration
+
 configfile: "../config/config.yml"
 
-root_dir = pathlib.Path(config['root_dir']) / f'{config["obstime"]}_{config["spectral_table"]}'
+root_dir = pathlib.Path(config['root_dir']) / config['output_dir']
+instrument_design = getattr(mocksipipeline.instrument.configuration, config["instrument_design"])
 
 XRT_FILTERS = ['Be-thin:Open',]
 AIA_FILTERS = ['94', '131', '171', '193', '211', '335']
-FILTERGRAM_NAMES = [
-    'filtergram_1',
-    'filtergram_2',
-    'filtergram_3',
-    'filtergram_4',
-]
-SPECTROGRAM_NAMES = [
-    'spectrogram_1',
-    # 'specttrogram_2',  # TODO: Implement rectangular spectrogram
-]
-SPECTRAL_ORDERS = [
-    -4,
-    -3,
-    -2,
-    -1,
-    0,
-    1,
-    2,
-    3,
-    4,
-]
+CHANNEL_NAMES = [f'{c.name}_{c.spectral_order}' for c in instrument_design.channel_list]
+
 
 rule sum_components:
     input:
-        expand(root_dir / 'detector_images' / '{channel}_0.fits', channel=FILTERGRAM_NAMES),
-        expand(root_dir / 'detector_images' / '{channel}_{order}.fits', channel=SPECTROGRAM_NAMES, order=SPECTRAL_ORDERS)
+        expand(root_dir / 'detector_images' / '{channel_name}.fits', channel_name=CHANNEL_NAMES)
     output:
         root_dir / 'detector_images' / 'all_components.fits'
     script:
@@ -41,10 +24,9 @@ rule calculate_detector_images:
     input:
         root_dir / 'spectral_cube.fits'
     output:
-        root_dir / 'detector_images' / '{channel}_{order}.fits'
+        root_dir / 'detector_images' / '{channel_name}.fits'
     params:
-        channel=lambda wildcards: wildcards.channel,
-        order=lambda wildcards: wildcards.order
+        channel_name=lambda wildcards: wildcards.channel_name
     script:
         "scripts/project_intensity_cubes.py"
 

@@ -1,6 +1,8 @@
 """
 Script to compute DEM cube constrained by EUV and SXR images.
 """
+import pathlib
+
 import aiapy.response
 import astropy.units as u
 import ndcube
@@ -176,7 +178,12 @@ if __name__ == '__main__':
         delta_log_t,
     ) * u.K
     # Read in spectral table
-    spectral_table = get_spectral_tables()[snakemake.config['spectral_table']]
+    spectral_table_name = snakemake.config['spectral_table']
+    if pathlib.Path(spectral_table_name).is_file():
+        from synthesizAR.atomic.idl import read_spectral_table
+        spectral_table = read_spectral_table(spectral_table_name)
+    else:
+        spectral_table = get_spectral_tables()[spectral_table_name]
     # Compute temperature response functions
     temperature_kernel = 10**np.arange(5, 8, 0.05) * u.K
     kernels = calculate_response_kernels(collection,
