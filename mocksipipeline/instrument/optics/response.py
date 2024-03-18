@@ -15,6 +15,22 @@ from sunpy.map import solar_angular_radius
 
 from mocksipipeline.instrument.optics.filter import ThinFilmFilter
 
+ALLOWED_SPECTRAL_ORDERS = [
+    -6,
+    -5,
+    -4,
+    -3,
+    -2,
+    -1,
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+]
+
 __all__ = [
     'Channel',
 ]
@@ -96,8 +112,7 @@ aperture: {self.aperture}
 
     @spectral_order.setter
     def spectral_order(self, value):
-        allowed_spectral_orders = [-4, -3, -2, -1, 0, 1, 2, 3, 4]
-        if value not in allowed_spectral_orders:
+        if value not in ALLOWED_SPECTRAL_ORDERS:
             raise ValueError(f'{value} is not an allowed spectral order.')
         self._spectral_order = value
 

@@ -9,7 +9,8 @@ from mocksipipeline.instrument.optics.aperture import (CircularAperture,
                                                        SlotAperture)
 from mocksipipeline.instrument.optics.configuration import short_design
 from mocksipipeline.instrument.optics.filter import ThinFilmFilter
-from mocksipipeline.instrument.optics.response import Channel
+from mocksipipeline.instrument.optics.response import (ALLOWED_SPECTRAL_ORDERS,
+                                                       Channel)
 
 __all__ = [
     'moxsi_slot',
@@ -83,10 +84,9 @@ filtergram_4 = Channel(name='filtergram_4',
                        aperture=pinhole)
 
 # Set up spectrograms
-orders = [-4, -3, -2, -1, 0, 1, 2, 3, 4]
 spectrograms_pinhole = []
 spectrograms_slot = []
-for order in orders:
+for order in ALLOWED_SPECTRAL_ORDERS:
     spectrograms_pinhole.append(
         Channel(name='spectrogram_pinhole',
                 order=order,
