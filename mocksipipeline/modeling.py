@@ -97,7 +97,8 @@ def project_spectral_cube(instr_cube,
                           observer,
                           dt=1*u.s,
                           interval=20*u.s,
-                          convert_to_dn=False,
+                          apply_gain_conversion=False,
+                          apply_electron_conversion=False,
                           chunks=None,
                           **wcs_kwargs):
     """
@@ -109,10 +110,16 @@ def project_spectral_cube(instr_cube,
     channel
     dt
     interval
-    convert_to_dn: `bool`, optional
+    apply_electron_conversion: `bool`, optional
+        If True, sum counts in electrons. Poisson sampling will still be done in
+        photon space.
+    apply_gain_conversion: `bool`, optional
         If True, sum counts in DN. Poisson sampling will still be done
-        in photon space
+        in photon space. This only has an effect if ``apply_electron_conversion``
+        is also True.
     """
+    if apply_gain_conversion and not apply_electron_conversion:
+        raise ValueError('Cannot convert to DN without also setting apply_electron_conversion=True')
     # Sample distribution
     lam = (instr_cube.data * instr_cube.unit * u.pix * dt).to_value('photon')
     if chunks is None:
@@ -127,13 +134,18 @@ def project_spectral_cube(instr_cube,
     weights = samples[idx_nonzero]
     # (Optionally) Convert to DN
     unit = 'photon'
-    if convert_to_dn:
+    if apply_electron_conversion:
         # NOTE: we can select the relevant conversion factors this way because the wavelength
         # axis of lam is the same as channel.wavelength and thus their indices are aligned
-        ct_per_photon = channel.electron_per_photon * channel.camera_gain
-        ct_per_photon = np.where(channel._energy_out_of_bounds, 0*u.Unit('ct /ph'), ct_per_photon)
-        weights = weights * ct_per_photon.to_value('ct / ph')[idx_nonzero[0]]
-        unit = 'ct'
+        unit = 'electron'
+        conversion_factor = channel.electron_per_photon.to('electron / ph')
+        if apply_gain_conversion:
+            unit = 'DN'
+            conversion_factor = (conversion_factor * channel.camera_gain).to('DN / ph')
+        conversion_factor = np.where(channel._energy_out_of_bounds,
+                                     0*conversion_factor.unit,
+                                     conversion_factor)
+        weights = weights * conversion_factor.value[idx_nonzero[0]]
     # Map counts to detector coordinates
     overlap_wcs = channel.get_wcs(observer, **wcs_kwargs)
     n_rows = channel.detector_shape[0]
