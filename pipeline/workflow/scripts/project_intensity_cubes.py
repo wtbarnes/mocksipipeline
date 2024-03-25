@@ -31,7 +31,8 @@ if __name__ == '__main__':
     # Read in config options
     dt = float(snakemake.config['exposure_time']) * u.s
     interval = float(snakemake.config['cadence']) * u.s
-    convert_to_dn = bool(snakemake.config['convert_to_dn'])
+    apply_electron_conversion = bool(snakemake.config['apply_electron_conversion'])
+    apply_gain_conversion = bool(snakemake.config['apply_gain_conversion'])
     # Load instrument configuration
     instrument_design = getattr(mocksipipeline.instrument.configuration, snakemake.config['instrument_design'])
     # Select channel
@@ -49,6 +50,7 @@ if __name__ == '__main__':
                                      wcs_to_celestial_frame(spec_cube.wcs).observer,
                                      dt=dt,
                                      interval=interval,
-                                     convert_to_dn=convert_to_dn)
+                                     apply_gain_conversion=apply_gain_conversion,
+                                     apply_electron_conversion=apply_electron_conversion)
     # Save to file
     write_overlappogram(det_cube, snakemake.output[0])
