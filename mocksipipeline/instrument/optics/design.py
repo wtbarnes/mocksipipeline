@@ -49,7 +49,7 @@ class OpticalDesign:
     pixel_size_x: u.Quantity[u.micron] = 7 * u.micron
     pixel_size_y: u.Quantity[u.micron] = 7 * u.micron
     detector_shape: tuple = (1504, 2000)
-    camera_gain: u.Quantity[u.ct / u.electron] = 1.8 * u.ct / u.electron
+    camera_gain: u.Quantity[u.DN / u.electron] = 1.8 * u.DN / u.electron
 
     def __eq__(self, value):
         if not isinstance(value, OpticalDesign):
