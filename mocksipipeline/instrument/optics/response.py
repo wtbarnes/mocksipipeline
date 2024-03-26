@@ -14,6 +14,10 @@ from sunpy.coordinates import get_earth
 from sunpy.map import solar_angular_radius
 
 from mocksipipeline.instrument.optics.filter import ThinFilmFilter
+from mocksipipeline.instrument.optics.aperture import AbstractAperture
+
+import scipy
+import xarray as xr
 
 ALLOWED_SPECTRAL_ORDERS = np.arange(-11, 12, 1)
 
@@ -46,7 +50,7 @@ class Channel:
         Pixel location of solar image in cartesian coordinates
     """
 
-    def __init__(self, name, filters, order, design, aperture, reference_pixel, **kwargs):
+    def __init__(self, name, filters, order, design, aperture: AbstractAperture, reference_pixel, **kwargs):
         self.name = name
         self.spectral_order = order
         self.design = design
@@ -159,9 +163,9 @@ aperture: {self.aperture}
         # spectral order is to minimize the number of wavelengths that are
         # projected completely off the detector.
         obs = get_earth('2020-01-01')
-        origin = SkyCoord(Tx=0*u.arcsec, Ty=0*u.arcsec, frame='helioprojective', observer=obs)
+        origin = SkyCoord(Tx=0 * u.arcsec, Ty=0 * u.arcsec, frame='helioprojective', observer=obs)
         # NOTE: This assumes the origin falls in the middle of the detector
-        width_pixel = (self.detector_shape[1] / 2)* u.pix
+        width_pixel = (self.detector_shape[1] / 2) * u.pix
         width_pixel += 1.25 * solar_angular_radius(origin) / self.spatial_plate_scale[0]
         wave_max = width_pixel * self.spectral_plate_scale
         if self.spectral_order != 0:
@@ -319,3 +323,76 @@ aperture: {self.aperture}
             pc_matrix=pc_matrix,
             observer=observer,
         )
+
+    def psf(self, wavelength=None):
+        mask = self.aperture.mask
+        f = self.design.focal_length
+
+        x = mask.coords['x'].values * u.micron
+        y = mask.coords['y'].values * u.micron
+        x_step = x[0, 1] - x[0, 0]
+
+        f_number = f / (x[0, -1] - x[0, 0])
+        f_number = f_number.to('')
+        print(f'{f_number=}')
+
+        if wavelength is None:
+            wavelength = self.wavelength
+
+        mask = self.aperture.mask
+
+        wfe = mask.data * 1e9 * 1j  # only the fresnel term depends on wavelength
+        print(f'{wfe.shape=}')
+
+        if wavelength.size == 1:
+            wavelength = [wavelength, ]
+
+        psfs = []
+        for wv in wavelength:
+            oversample = 4
+            dx = wv * f_number / oversample
+            dx = dx.to(u.micron)
+
+            fresnel_wfe = 1 / (2 * wv * f) * (x ** 2 + y ** 2) + 0.j
+            fresnel_wfe = fresnel_wfe.value
+
+            wfe_total = wfe + fresnel_wfe
+
+            fresnel_psf = _wfe2psf(wfe_total, oversample=oversample)
+            x_psf = x / x_step * dx
+            y_psf = y / x_step * dx
+
+            psfs.append(
+                xr.DataArray(
+                    data=fresnel_psf,
+                    dims=['x', 'y'],
+                    coords=dict(
+                        x=(["x", "y"], x_psf),
+                        y=(["x", "y"], y_psf),
+                    ),
+                )
+            )
+
+        return psfs
+
+
+def _wfe2psf(wfe, oversample=8):
+    '''
+    Adaptation of CCK Fourier optics code originally in IDL for converting wavefront errors into PSFs
+    '''
+
+    shp = wfe.shape[0]  # probably assumes it's square, could be changed
+    print(f'{shp=}')
+    waves = np.exp(2 * np.pi * wfe * 1j)
+
+    big_waves = np.zeros((shp * oversample, shp * oversample), dtype='complex')
+    big_waves[0:shp, 0:shp] = waves
+
+    psf = scipy.fft.fft2(big_waves, workers=-1)
+    psf = np.abs(psf) ** 2
+    psf /= psf.max()
+
+    psf = np.roll(psf, (shp // 2, shp // 2), axis=[0, 1])
+    psf = psf[0:shp, 0:shp]
+
+    return psf
