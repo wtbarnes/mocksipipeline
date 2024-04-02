@@ -324,8 +324,8 @@ aperture: {self.aperture}
             observer=observer,
         )
 
-    def psf(self, wavelength=None):
-        mask = self.aperture.mask
+    def psf(self, wavelength=None, mask_oversample=4, fft_oversample = 4):
+        mask = self.aperture.mask(oversample=mask_oversample)
         f = self.design.focal_length
 
         x = mask.coords['x'].values * u.micron
@@ -334,23 +334,18 @@ aperture: {self.aperture}
 
         f_number = f / (x[0, -1] - x[0, 0])
         f_number = f_number.to('')
-        print(f'{f_number=}')
 
         if wavelength is None:
             wavelength = self.wavelength
 
-        mask = self.aperture.mask
-
         wfe = mask.data * 1e9 * 1j  # only the fresnel term depends on wavelength
-        print(f'{wfe.shape=}')
 
         if wavelength.size == 1:
             wavelength = [wavelength, ]
 
         psfs = []
         for wv in wavelength:
-            oversample = 4
-            dx = wv * f_number / oversample
+            dx = wv * f_number / fft_oversample
             dx = dx.to(u.micron)
 
             fresnel_wfe = 1 / (2 * wv * f) * (x ** 2 + y ** 2) + 0.j
@@ -358,7 +353,7 @@ aperture: {self.aperture}
 
             wfe_total = wfe + fresnel_wfe
 
-            fresnel_psf = _wfe2psf(wfe_total, oversample=oversample)
+            fresnel_psf = _wfe2psf(wfe_total, oversample=fft_oversample)
             x_psf = x / x_step * dx
             y_psf = y / x_step * dx
 

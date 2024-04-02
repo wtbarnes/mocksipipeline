@@ -46,13 +46,13 @@ class SlotAperture(AbstractAperture):
     def area(self) -> u.cm ** 2:
         return np.pi * (self.diameter / 2) ** 2 + self.diameter * self.center_to_center_distance
 
-    @property
     def mask(self, oversample=8):
         pinhole_diameter = self.diameter
         center2center_distance = self.center_to_center_distance
 
-        aperture_size = center2center_distance * 1.2
-        x = np.linspace(-aperture_size/2, aperture_size / 2, num=int((aperture_size*oversample).value), endpoint=True)
+        aperture_size = (center2center_distance + pinhole_diameter) * 1.05
+        x = np.linspace(-aperture_size / 2, aperture_size / 2, num=int((aperture_size * oversample).value),
+                        endpoint=True)
         x, y = np.meshgrid(x, x)
 
         # shift coordinate system
@@ -118,8 +118,7 @@ class CircularAperture(AbstractAperture):
     def area(self) -> u.cm ** 2:
         return np.pi * (self.diameter / 2) ** 2
 
-    @property
-    def mask(self, oversample=16) -> xarray.DataArray:
+    def mask(self, oversample=4) -> xarray.DataArray:
         big_aperture = self.diameter * 1.05
         x = np.arange(int(big_aperture.value) * oversample)
         x = x - x.shape[0] // 2
