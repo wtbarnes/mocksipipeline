@@ -19,6 +19,7 @@ def annotate_lines(axis, cube, source_location, line_list, component_wcs, cube_t
     line_list
     component_wcs
     """
+    draggable = kwargs.pop('draggable', False)
     color = kwargs.get('color', 'k')
     annotate_kwargs = {
         'xytext': (0, 150),
@@ -36,7 +37,7 @@ def annotate_lines(axis, cube, source_location, line_list, component_wcs, cube_t
     line_index = np.array(line_index)
 
     # NOTE: we cannot label lines for which we do not have corresponding data values
-    in_bounds = np.where(line_index<cube.data.shape[0])
+    in_bounds = np.where(np.logical_and(line_index>=0, line_index<cube.data.shape[0]))
     line_pos = line_pos[in_bounds]
     line_index = line_index[in_bounds]
     line_list = line_list[in_bounds]
@@ -51,7 +52,8 @@ def annotate_lines(axis, cube, source_location, line_list, component_wcs, cube_t
 
     for pos, index, row in zip(line_pos, line_index, line_list):
         wave_label = row["wavelength"].to_string(format="latex_inline", precision=5)
-        axis.annotate(f'{row["ion name"]}, {wave_label}', (pos, cube.data[index]), **annotate_kwargs)
+        _annotate = axis.annotate(f'{row["ion name"]}, {wave_label}', (pos, cube.data[index]), **annotate_kwargs)
+        _annotate.draggable(draggable)
 
     return axis
 
@@ -84,8 +86,10 @@ def plot_labeled_spectrum(spectra_components, spectra_total, line_list, source_l
     threshold = kwargs.pop('threshold', None)
     figsize = kwargs.pop('figsize', (20,10))
 
-    fig = plt.figure(figsize=figsize)
-    ax = None
+    fig = kwargs.pop('figure', None)
+    if fig is None:
+        fig = plt.figure(figsize=figsize)  # Avoid creating figure if not needed
+    ax = kwargs.pop('axes', None)
     for i, component in enumerate(spectra_components):
         label = labels[i] if labels else None
         if ax is None:
