@@ -36,6 +36,7 @@ $ snakemake ../results/ar-run/detector_images/all_components.fits \
                      exposure_time=1 \
                      cadence=1 \
                      instrument_design='moxsi_slot' \
-                     convert_to_dn='False' \
+                     apply_gain_conversion='False' \
+                     apply_electron_conversion='False' \
             --cores 1
 ```

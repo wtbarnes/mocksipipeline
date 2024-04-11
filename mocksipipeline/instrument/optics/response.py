@@ -15,21 +15,7 @@ from sunpy.map import solar_angular_radius
 
 from mocksipipeline.instrument.optics.filter import ThinFilmFilter
 
-ALLOWED_SPECTRAL_ORDERS = [
-    -6,
-    -5,
-    -4,
-    -3,
-    -2,
-    -1,
-    0,
-    1,
-    2,
-    3,
-    4,
-    5,
-    6,
-]
+ALLOWED_SPECTRAL_ORDERS = np.arange(-11, 12, 1)
 
 __all__ = [
     'Channel',
@@ -292,7 +278,7 @@ aperture: {self.aperture}
 
     @property
     @u.quantity_input
-    def camera_gain(self) -> u.Unit('ct / electron'):
+    def camera_gain(self) -> u.Unit('DN / electron'):
         return self.design.camera_gain
 
     @property
@@ -307,11 +293,11 @@ aperture: {self.aperture}
 
     @property
     @u.quantity_input
-    def wavelength_response(self) -> u.Unit('cm^2 ct / photon'):
+    def wavelength_response(self) -> u.Unit('cm^2 DN / photon'):
         wave_response = (self.effective_area *
                          self.electron_per_photon *
                          self.camera_gain)
-        return np.where(self._energy_out_of_bounds, 0 * u.Unit('cm2 ct /ph'), wave_response)
+        return np.where(self._energy_out_of_bounds, 0 * u.Unit('cm2 DN /ph'), wave_response)
 
     def get_wcs(self, observer, roll_angle=90 * u.deg):
         pc_matrix = pcij_matrix(roll_angle,

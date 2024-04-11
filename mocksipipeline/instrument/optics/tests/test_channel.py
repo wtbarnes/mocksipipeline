@@ -50,7 +50,7 @@ def test_effective_area(channel):
 def test_wavelength_response(channel):
     assert isinstance(channel.wavelength_response, u.Quantity)
     assert channel.wavelength_response.shape == channel.wavelength.shape
-    assert channel.wavelength_response.unit.is_equivalent('cm2 ct / ph')
+    assert channel.wavelength_response.unit.is_equivalent('cm2 DN / ph')
 
 
 @pytest.mark.parametrize('channel', moxsi_short.channel_list[:4])
