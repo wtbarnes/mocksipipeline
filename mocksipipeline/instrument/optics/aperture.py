@@ -15,14 +15,15 @@ class AbstractAperture(abc.ABC):
     An abstract base class for defining the geometry of a MOXSI aperture
     """
 
-    @abc.abstractproperty
+    @property
+    @abc.abstractmethod
     @u.quantity_input
     def area(self) -> u.cm ** 2:
         ...
 
-    @abc.abstractproperty
-    @u.quantity_input
-    def mask(self) -> xarray.DataArray:
+    @property
+    @abc.abstractmethod
+    def mask(self):
         ...
 
 
@@ -43,52 +44,49 @@ class SlotAperture(AbstractAperture):
 
     @property
     @u.quantity_input
-    def area(self) -> u.cm ** 2:
-        return np.pi * (self.diameter / 2) ** 2 + self.diameter * self.center_to_center_distance
+    def area(self) -> u.cm**2:
+        return np.pi*(self.diameter/2)**2 + self.diameter*self.center_to_center_distance
 
-    def mask(self, oversample=8):
-        pinhole_diameter = self.diameter
-        center2center_distance = self.center_to_center_distance
+    def mask(self, oversample=8/u.micron):
+        """
+        Create a boolean mask for the aperture relevant to this channel.
 
-        aperture_size = (center2center_distance + pinhole_diameter) * 1.05
-        x = np.linspace(-aperture_size / 2, aperture_size / 2, num=int((aperture_size * oversample).value),
-                        endpoint=True)
+        Parameters
+        ----------
+        oversample: `~astropy.units.Quantity`
+            How much to oversample the resulting mask by
+
+        Returns
+        -------
+        : `~xarray.DataArray`
+            Aperture mask with appropriate coordinates
+        """
+        # NOTE: Add 5% safety factor for margin on array size relative to aperture size
+        aperture_size = (self.center_to_center_distance + self.diameter) * 1.05
+        n_x = int((aperture_size * oversample).to_value(u.dimensionless_unscaled))
+        x = np.linspace(-aperture_size/2, aperture_size/2, n_x, endpoint=True)
         x, y = np.meshgrid(x, x)
 
-        # shift coordinate system
-        x_shift = x - center2center_distance / 2
+        # Lower part of slot
+        r = np.sqrt((x - self.center_to_center_distance/2)**2 + y**2)
+        pinhole_lower = np.where(r < self.diameter / 2, 0, 1)
 
-        r = np.sqrt(x_shift * x_shift + y * y)
-        pinhole = np.ones_like(r).value
-        pinhole[r < pinhole_diameter / 2] = 0
+        # Upper part of slot
+        r = np.sqrt((x + self.center_to_center_distance/2)**2 + y**2)
+        pinhole_upper = np.where(r < self.diameter / 2, 0, 1)
 
-        # shift coordinate system
-        x_shift = x + center2center_distance / 2
-
-        r = np.sqrt(x_shift * x_shift + y * y)
-        pinhole2 = np.ones_like(r).value
-        pinhole2[r < pinhole_diameter / 2] = 0
-
-        x_cut = np.ones_like(r).value
-        y_cut = np.ones_like(r).value
-
-        x_cut *= x > -center2center_distance / 2
-        x_cut *= x < center2center_distance / 2
-
-        y_cut *= y > -pinhole_diameter / 2
-        y_cut *= y < pinhole_diameter / 2
-
+        # Middle rectangle
+        x_cut = np.where(
+            np.logical_and(-self.center_to_center_distance/2<=x, x<=self.center_to_center_distance/2), 1, 0)
+        y_cut = np.where(np.logical_and(-self.diameter/2<=y, y<=self.diameter/2), 1, 0)
         rectangle = x_cut * y_cut
         rectangle = 0 ** rectangle
 
-        mask = pinhole * pinhole2 * rectangle
+        mask = pinhole_lower * pinhole_upper * rectangle
         return xarray.DataArray(
             data=mask,
             dims=["x", "y"],
-            coords=dict(
-                x=(["x", "y"], x),
-                y=(["x", "y"], y),
-            ),
+            coords={'x': (['x','y'], x), 'y': (['x','y'], y)},
         )
 
     def __repr__(self):
@@ -115,26 +113,22 @@ class CircularAperture(AbstractAperture):
 
     @property
     @u.quantity_input
-    def area(self) -> u.cm ** 2:
-        return np.pi * (self.diameter / 2) ** 2
+    def area(self) -> u.cm**2:
+        return np.pi*(self.diameter/2)**2
 
-    def mask(self, oversample=4) -> xarray.DataArray:
-        big_aperture = self.diameter * 1.05
-        x = np.arange(int(big_aperture.value) * oversample)
-        x = x - x.shape[0] // 2
-
+    def mask(self, oversample=8/u.micron) -> xarray.DataArray:
+        # NOTE: Add 5% safety factor for margin on array size relative to aperture size
+        aperture_size = self.diameter * 1.05
+        n_x = int((aperture_size * oversample).to_value(u.dimensionless_unscaled))
+        x = np.linspace(-aperture_size/2, aperture_size/2, n_x, endpoint=True)
         x, y = np.meshgrid(x, x)
-
-        r = np.sqrt(x * x + y * y)
-        pinhole = np.ones_like(r)
-        pinhole[r < self.diameter.value / 2 * oversample] = 0
-
+        mask = np.where(np.sqrt(x**2 + y**2)<self.diameter/2, 0, 1)
         return xarray.DataArray(
-            data=pinhole,
+            data=mask,
             dims=["x", "y"],
             coords=dict(
-                x=(["x", "y"], x / oversample),
-                y=(["x", "y"], y / oversample),
+                x=(["x", "y"], x),
+                y=(["x", "y"], y),
             ),
         )
 
