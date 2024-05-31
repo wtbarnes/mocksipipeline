@@ -26,7 +26,7 @@ class InstrumentDesign:
 
         fig = plt.figure()
         ax = fig.add_subplot()
-        colors = {i: f'C{i}' for i in range(5)}
+        colors = {i: f'C{i}' for i in range(12)}
         for channel in self.channel_list:
             _wcs = channel.get_wcs(observer)
             px, py, _ = _wcs.world_to_pixel(limb_coord, wavelength)
