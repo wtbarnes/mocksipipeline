@@ -69,11 +69,11 @@ class SlotAperture(AbstractAperture):
 
         # Lower part of slot
         r = np.sqrt((x - self.center_to_center_distance/2)**2 + y**2)
-        pinhole_lower = np.where(r < self.diameter / 2, 0, 1)
+        pinhole_lower = np.where(r < self.diameter/2, 0, 1)
 
         # Upper part of slot
         r = np.sqrt((x + self.center_to_center_distance/2)**2 + y**2)
-        pinhole_upper = np.where(r < self.diameter / 2, 0, 1)
+        pinhole_upper = np.where(r < self.diameter/2, 0, 1)
 
         # Middle rectangle
         x_cut = np.where(
@@ -83,11 +83,15 @@ class SlotAperture(AbstractAperture):
         rectangle = 0 ** rectangle
 
         mask = pinhole_lower * pinhole_upper * rectangle
-        return xarray.DataArray(
-            data=mask,
-            dims=["x", "y"],
-            coords={'x': (['x','y'], x), 'y': (['x','y'], y)},
-        )
+        x_coord = xarray.DataArray(data=x.value,
+                                   dims=['x','y'],
+                                   attrs={'unit': x.unit.to_string(format='fits')})
+        y_coord = xarray.DataArray(data=y.value,
+                                   dims=['x','y'],
+                                   attrs={'unit': y.unit.to_string(format='fits')})
+        return xarray.DataArray(data=mask,
+                                dims=["x", "y"],
+                                coords={'x': x_coord, 'y': y_coord})
 
     def __repr__(self):
         return f"""Slot Aperture
@@ -126,10 +130,7 @@ class CircularAperture(AbstractAperture):
         return xarray.DataArray(
             data=mask,
             dims=["x", "y"],
-            coords=dict(
-                x=(["x", "y"], x),
-                y=(["x", "y"], y),
-            ),
+            coords={'x': (["x", "y"], x), 'y': (["x", "y"], y)}
         )
 
     def __repr__(self):
