@@ -6,8 +6,6 @@ from functools import cached_property
 import astropy.table
 import astropy.units as u
 import numpy as np
-import scipy
-import xarray
 from astropy.coordinates import SkyCoord
 from astropy.utils.data import get_pkg_data_filename
 from overlappy.wcs import overlappogram_fits_wcs, pcij_matrix
@@ -323,67 +321,6 @@ aperture: {self.aperture}
             observer=observer,
         )
 
-    @u.quantity_input(wavelength=u.Angstrom, mask_oversample=1/u.m)
-    def psf(self, wavelength, mask_oversample=8/u.micron, fft_oversample=4):
-        wavelength = np.atleast_1d(wavelength)
-        mask = self.aperture.mask(oversample=mask_oversample)
-        x = u.Quantity(mask.coords['x'].data, mask.coords['x'].attrs['unit'])
-        y = u.Quantity(mask.coords['y'].data, mask.coords['y'].attrs['unit'])
-        x_step = x[0, 1] - x[0, 0]
-        y_step = y[1, 0] - y[0, 0]
-        x_domain = x[0, -1] - x[0, 0]
-        f_number = (self.design.focal_length/x_domain).to_value(u.dimensionless_unscaled)
-        # NOTE: The logic here is to multiple the wavefront errors by a large imaginary
-        # number so that wavefront errors can easily be tracked as they propagate through
-        # the system.
-        # NOTE: only the fresnel term depends on wavelength
-        wfe = mask.data * 1e9 * 1j
-        psfs = []
-        for wave in wavelength:
-            dx = wave * f_number / fft_oversample
-            fresnel_wfe = (x**2 + y**2)/(2*wave*self.design.focal_length) + 0.j
-            wfe_total = wfe + fresnel_wfe.to_value(u.dimensionless_unscaled)
-            fresnel_psf = _wfe2psf(wfe_total, oversample=fft_oversample)
-            x_psf = (x / x_step * dx).to(x.unit)
-            y_psf = (y / y_step * dx).to(x.unit)
-            x_coord = xarray.DataArray(data=x_psf[0,:].value,
-                                       dims=['x'],
-                                       attrs={'unit': x_psf.unit.to_string(format='fits')})
-            y_coord = xarray.DataArray(data=y_psf[:,0].value,
-                                       dims=['y'],
-                                       attrs={'unit': y_psf.unit.to_string(format='fits')})
-            _psf = xarray.DataArray(data=fresnel_psf.T,
-                                    dims=['x', 'y'],
-                                    coords={'x': x_coord, 'y': y_coord})
-            psfs.append(_psf)
-
-        # NOTE: Interpolate to the DataArray corresponding to the smallest wavelength
-        # because it will have the highest resolution
-        psf_target = psfs[np.argmin(wavelength)]
-        wave_coord = xarray.DataArray(wavelength.value,
-                                      dims=['wavelength'],
-                                      attrs={'unit': wavelength.unit.to_string(format='fits')})
-        psf_cube = xarray.DataArray(
-            data=np.array([psf.interp_like(psf_target) for psf in psfs]),
-            dims=['wavelength', 'x', 'y'],
-            coords={'x': psf_target.coords['x'],
-                    'y': psf_target.coords['y'],
-                    'wavelength': wave_coord},
-        )
-        return psf_cube
-
-
-def _wfe2psf(wfe, oversample=8):
-    """
-    Adaptation of CCK Fourier optics code originally in IDL for converting wavefront errors into PSFs
-    """
-    shp = wfe.shape[0]  # probably assumes it's square, could be changed
-    waves = np.exp(2 * np.pi * wfe * 1j)
-    big_waves = np.zeros((shp * oversample, shp * oversample), dtype='complex')
-    big_waves[0:shp, 0:shp] = waves
-    psf = scipy.fft.fft2(big_waves, workers=-1)
-    psf = np.abs(psf) ** 2
-    psf /= psf.max()
-    psf = np.roll(psf, (shp // 2, shp // 2), axis=[0, 1])
-    psf = psf[0:shp, 0:shp]
-    return psf
+    @property
+    def psf(self):
+        return self.aperture.get_psf(self.design)
