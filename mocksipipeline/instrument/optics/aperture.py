@@ -69,31 +69,32 @@ class AbstractAperture(abc.ABC):
         mask = self.mask(resolution=resolution)
         x = u.Quantity(mask.coords['x'].data, mask.coords['x'].attrs['unit'])
         y = u.Quantity(mask.coords['y'].data, mask.coords['y'].attrs['unit'])
-        x_step = x[0, 1] - x[0, 0]
-        y_step = y[1, 0] - y[0, 0]
-        x_domain = x[0, -1] - x[0, 0]
+        x_step = x[1] - x[0]
+        y_step = y[1] - y[0]
+        x_domain = x[-1] - x[0]
         f_number = (optical_design.focal_length/x_domain).to_value(u.dimensionless_unscaled)
         # NOTE: The logic here is to multiple the wavefront errors by a large imaginary
         # number so that wavefront errors can easily be tracked as they propagate through
         # the system.
         # NOTE: only the fresnel term depends on wavelength
         wfe = mask.data * 1e9 * 1j
+        x_grid, y_grid = np.meshgrid(x, y)
         psfs = []
         for wave in wavelength:
             dx = wave * f_number / fft_oversample
-            fresnel_wfe = (x**2 + y**2)/(2*wave*optical_design.focal_length) + 0.j
+            fresnel_wfe = (x_grid**2 + y_grid**2)/(2*wave*optical_design.focal_length) + 0.j
             wfe_total = wfe + fresnel_wfe.to_value(u.dimensionless_unscaled)
             fresnel_psf = _wfe2psf(wfe_total, oversample=fft_oversample)
             x_psf = (x / x_step * dx).to(x.unit)
             y_psf = (y / y_step * dx).to(x.unit)
-            x_coord = xarray.DataArray(data=x_psf[0,:].value,
+            x_coord = xarray.DataArray(data=x_psf.value,
                                        dims=['x'],
                                        attrs={'unit': x_psf.unit.to_string(format='fits')})
-            y_coord = xarray.DataArray(data=y_psf[:,0].value,
+            y_coord = xarray.DataArray(data=y_psf.value,
                                        dims=['y'],
                                        attrs={'unit': y_psf.unit.to_string(format='fits')})
-            _psf = xarray.DataArray(data=fresnel_psf.T,
-                                    dims=['x', 'y'],
+            _psf = xarray.DataArray(data=fresnel_psf,
+                                    dims=['y', 'x'],
                                     coords={'x': x_coord, 'y': y_coord})
             psfs.append(_psf)
 
@@ -111,7 +112,7 @@ class AbstractAperture(abc.ABC):
         pixel_coord_y.attrs['unit'] = 'pixel'
         psf_cube = xarray.DataArray(
             data=np.array([psf.interp_like(psf_target) for psf in psfs]),
-            dims=['wavelength', 'x', 'y'],
+            dims=['wavelength', 'y', 'x'],
             coords={'x': psf_target.coords['x'],
                     'y': psf_target.coords['y'],
                     'delta_pixel_x': pixel_coord_x,
@@ -195,14 +196,14 @@ class SlotAperture(AbstractAperture):
         rectangle = 0 ** rectangle
 
         mask = pinhole_lower * pinhole_upper * rectangle
-        x_coord = xarray.DataArray(data=x.value,
-                                   dims=['x','y'],
+        x_coord = xarray.DataArray(data=x[0,:].value,
+                                   dims=['x'],
                                    attrs={'unit': x.unit.to_string(format='fits')})
-        y_coord = xarray.DataArray(data=y.value,
-                                   dims=['x','y'],
+        y_coord = xarray.DataArray(data=y[:,0].value,
+                                   dims=['y'],
                                    attrs={'unit': y.unit.to_string(format='fits')})
-        return xarray.DataArray(data=mask,
-                                dims=["x", "y"],
+        return xarray.DataArray(data=mask.T,
+                                dims=['y', 'x'],
                                 coords={'x': x_coord, 'y': y_coord})
 
     def __repr__(self):
@@ -248,14 +249,14 @@ class CircularAperture(AbstractAperture):
         x = np.linspace(start, stop, n_step, endpoint=True)
         x, y = np.meshgrid(x, x)
         mask = np.where(np.sqrt(x**2 + y**2)<self.diameter/2, 0, 1)
-        x_coord = xarray.DataArray(data=x.value,
-                                   dims=['x','y'],
+        x_coord = xarray.DataArray(data=x[0,:].value,
+                                   dims=['y'],
                                    attrs={'unit': x.unit.to_string(format='fits')})
-        y_coord = xarray.DataArray(data=y.value,
-                                   dims=['x','y'],
+        y_coord = xarray.DataArray(data=y[:,0].value,
+                                   dims=['y'],
                                    attrs={'unit': y.unit.to_string(format='fits')})
-        return xarray.DataArray(data=mask,
-                                dims=["x", "y"],
+        return xarray.DataArray(data=mask.T,
+                                dims=["y", "x"],
                                 coords={'x': x_coord, 'y': y_coord})
 
     def __repr__(self):
