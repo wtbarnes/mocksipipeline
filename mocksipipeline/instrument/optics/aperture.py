@@ -51,7 +51,13 @@ class AbstractAperture(abc.ABC):
         ...
 
     @u.quantity_input(wavelength=u.Angstrom, resolution=u.m)
-    def calculate_psf(self, wavelength, optical_design, resolution=1/8*u.micron, fft_oversample=4, save_psf=False):
+    def calculate_psf(self,
+                      wavelength,
+                      optical_design,
+                      psf_resolution=1*u.micron,
+                      mask_resolution=1/8*u.micron,
+                      fft_oversample=4,
+                      save_psf=False):
         """
         Calculate wavelength-dependent PSF for a given optical design.
 
@@ -59,14 +65,16 @@ class AbstractAperture(abc.ABC):
         ----------
         wavelength
         optical_design
-        resolution
+        psf_resolution
+            The final resolution to interpolate the grid to
+        mask_resolution
         fft_oversample
         save_psf
         """
         # TODO: Add an option to read from a file--could save the file using the name of the optical design
         # and the name of the aperture
         wavelength = np.atleast_1d(wavelength)
-        mask = self.mask(resolution=resolution)
+        mask = self.mask(resolution=mask_resolution)
         x = u.Quantity(mask.coords['x'].data, mask.coords['x'].attrs['unit'])
         y = u.Quantity(mask.coords['y'].data, mask.coords['y'].attrs['unit'])
         x_step = x[1] - x[0]
@@ -98,23 +106,31 @@ class AbstractAperture(abc.ABC):
                                     coords={'x': x_coord, 'y': y_coord})
             psfs.append(_psf)
 
-        # NOTE: Interpolate to the DataArray corresponding to the smallest wavelength
-        # because it will have the highest resolution
-        psf_target = psfs[np.argmin(wavelength)]
+        # NOTE: This is really verbose because I want to make sure to get the units right everywhere
+        x_min = np.max([u.Quantity(_p.x.data[0], _p.x.attrs['unit']).to_value(psf_resolution.unit) for _p in psfs])
+        x_max = np.min([u.Quantity(_p.x.data[-1], _p.x.attrs['unit']).to_value(psf_resolution.unit) for _p in psfs])
+        y_min = np.max([u.Quantity(_p.y.data[0], _p.y.attrs['unit']).to_value(psf_resolution.unit) for _p in psfs])
+        y_max = np.min([u.Quantity(_p.y.data[-1], _p.y.attrs['unit']).to_value(psf_resolution.unit) for _p in psfs])
+        x_interp = xarray.DataArray(data=np.arange(x_min, x_max+psf_resolution.value, psf_resolution.value),
+                                    dims=['x'],
+                                    attrs={'unit': psf_resolution.unit.to_string(format='fits')})
+        y_interp = xarray.DataArray(data=np.arange(y_min, y_max+psf_resolution.value, psf_resolution.value),
+                                    dims=['y'],
+                                    attrs={'unit': psf_resolution.unit.to_string(format='fits')})
         wave_coord = xarray.DataArray(wavelength.value,
                                       dims=['wavelength'],
                                       attrs={'unit': wavelength.unit.to_string(format='fits')})
-        pixel_size_x = optical_design.pixel_size_x.to_value(psf_target.coords['x'].attrs['unit'])
-        pixel_size_y = optical_design.pixel_size_y.to_value(psf_target.coords['y'].attrs['unit'])
-        pixel_coord_x = psf_target.coords['x'] / pixel_size_x
+        pixel_size_x = optical_design.pixel_size_x.to_value(x_interp.attrs['unit'])
+        pixel_size_y = optical_design.pixel_size_y.to_value(y_interp.attrs['unit'])
+        pixel_coord_x = x_interp / pixel_size_x
         pixel_coord_x.attrs['unit'] = 'pixel'
-        pixel_coord_y = psf_target.coords['y'] / pixel_size_y
+        pixel_coord_y = y_interp / pixel_size_y
         pixel_coord_y.attrs['unit'] = 'pixel'
         psf_cube = xarray.DataArray(
-            data=np.array([psf.interp_like(psf_target) for psf in psfs]),
+            data=np.array([psf.interp(x=x_interp, y=y_interp, kwargs={'fill_value': 0}, method='linear') for psf in psfs]),
             dims=['wavelength', 'y', 'x'],
-            coords={'x': psf_target.coords['x'],
-                    'y': psf_target.coords['y'],
+            coords={'x': x_interp,
+                    'y': y_interp,
                     'delta_pixel_x': pixel_coord_x,
                     'delta_pixel_y': pixel_coord_y,
                     'wavelength': wave_coord},
@@ -176,8 +192,9 @@ class SlotAperture(AbstractAperture):
         # with quantities
         start = -aperture_size/2
         stop = aperture_size/2
-        n_step = int(np.ceil(((stop - start) / resolution).to_value(u.dimensionless_unscaled)))
-        x = np.linspace(start, stop, n_step, endpoint=True)
+        # n_step = int(np.ceil(((stop - start) / resolution).to_value(u.dimensionless_unscaled)))
+        x = np.arange(start.value, (stop+resolution).to_value(start.unit), resolution.to_value(start.unit))
+        x = x * start.unit
         x, y = np.meshgrid(x, x)
 
         # Lower part of slot
@@ -245,12 +262,13 @@ class CircularAperture(AbstractAperture):
         # with quantities
         start = -aperture_size/2
         stop = aperture_size/2
-        n_step = int(np.ceil(((stop - start) / resolution).to_value(u.dimensionless_unscaled)))
-        x = np.linspace(start, stop, n_step, endpoint=True)
+        #n_step = int(np.ceil(((stop - start) / resolution).to_value(u.dimensionless_unscaled)))
+        x = np.arange(start.value, (stop+resolution).to_value(start.unit), resolution.to_value(start.unit))
+        x = x * start.unit
         x, y = np.meshgrid(x, x)
         mask = np.where(np.sqrt(x**2 + y**2)<self.diameter/2, 0, 1)
         x_coord = xarray.DataArray(data=x[0,:].value,
-                                   dims=['y'],
+                                   dims=['x'],
                                    attrs={'unit': x.unit.to_string(format='fits')})
         y_coord = xarray.DataArray(data=y[:,0].value,
                                    dims=['y'],
