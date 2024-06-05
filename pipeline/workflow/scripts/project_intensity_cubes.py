@@ -41,9 +41,6 @@ if __name__ == '__main__':
     spec_cube = read_data_cube(snakemake.input[0])
     # Convolve with instrument response function
     instr_cube = convolve_with_response(spec_cube, channel, include_gain=False)
-    # Apply channel-dependent PSF
-    # PSF convolution calculation goes here
-    instr_cube = apply_psf(instr_cube, channel)
     # Remap spectral cube
     det_cube = project_spectral_cube(instr_cube,
                                      channel,
