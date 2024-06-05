@@ -106,8 +106,9 @@ def project_spectral_cube(instr_cube,
 
     Parameters
     ----------
-    spec_cube
+    instr_cube
     channel
+    observer
     dt
     interval
     apply_electron_conversion: `bool`, optional
@@ -137,6 +138,8 @@ def project_spectral_cube(instr_cube,
     if apply_electron_conversion:
         # NOTE: we can select the relevant conversion factors this way because the wavelength
         # axis of lam is the same as channel.wavelength and thus their indices are aligned
+        # TODO: relax this assumption by getting the wavelength from the spectral cube and
+        # doing the conversion that way and then selecting the nonzero entries.
         unit = 'electron'
         conversion_factor = channel.electron_per_photon.to('electron / ph')
         if apply_gain_conversion:
@@ -154,16 +157,74 @@ def project_spectral_cube(instr_cube,
     # case when we have only zeros in our sample; this can happen in 1 s exposures, particularly
     # at the higher spectral orders.
     if all([idx.size == 0 for idx in idx_nonzero]):
-        idx_nonzero_overlap = [[], []]
+        hist = np.zeros((n_rows, n_cols))
     else:
         idx_nonzero_overlap = pixel_to_pixel(instr_cube.wcs, overlap_wcs, *idx_nonzero[::-1])
-    hist, _, _ = np.histogram2d(idx_nonzero_overlap[1], idx_nonzero_overlap[0],
-                                bins=(n_rows, n_cols),
-                                range=([-.5, n_rows-.5], [-.5, n_cols-.5]),
-                                weights=weights)
+        # NOTE: Using the spectral cube indices to get the wavelengths because these are explicitly
+        # aligned with the wavelength axis of the channel wavelengths (by definition)
+        # TODO: Relax this assumption by grabbing the wavelengths from the input cube instead
+        wavelengths = channel.wavelength[idx_nonzero[0]]
+        x_pixel_detector = idx_nonzero_overlap[0]
+        y_pixel_detector = idx_nonzero_overlap[1]
+        # NOTE: Sort the wavelengths here because it makes the PSF wavelength selection in the
+        # PSF jitter calculation more efficient for Dask indexing reasons. When we do this, we
+        # need to make sure we are also sorting all of the other quantities that are aligned with
+        # wavelength
+        idx_wave_sort = np.argsort(wavelengths)
+        weights = weights[idx_wave_sort]
+        x_pixel_detector = x_pixel_detector[idx_wave_sort]
+        y_pixel_detector = y_pixel_detector[idx_wave_sort]
+        wavelengths = wavelengths[idx_wave_sort]
+        # Calculate position variation due to PSF
+        psf_jitter = calculate_psf_jitter(channel, wavelengths)
+        x_pixel_detector += psf_jitter[0]
+        y_pixel_detector += psf_jitter[1]
+        # TODO: Apply charge spreading
+        # Bin photon positions
+        hist, _, _ = np.histogram2d(y_pixel_detector,
+                                    x_pixel_detector,
+                                    bins=(n_rows, n_cols),
+                                    range=([-.5, n_rows-.5], [-.5, n_cols-.5]),
+                                    weights=weights)
     return ndcube.NDCube(strided_array(hist, channel.wavelength.shape[0]),
                          wcs=overlap_wcs,
                          unit=unit)
+
+
+def calculate_psf_jitter(channel, wavelengths):
+        """
+        Calculate variation in detector pixel position due to blurring by the PSF.
+
+        Parameters
+        ----------
+        channel
+        wavelengths
+        """
+        psf = channel.psf  # This reads from disk to make the call once
+        # Stack the x and y dimensions along a single dimension as we are going
+        # to collapse along the two spatial dimensions anyway. This also greatly
+        # simplifies the chunking and eliminates the need to reconstitute our index shape.
+        psf = psf.stack(xy=['x','y'])
+        # Normalize the PSF such that the sum at each wavelength slice is 1
+        # The reasoning here is so that we can treat the PSF at each wavelength value
+        # as a probability distribution to sample to compute the expected variation in
+        # position from the nominal position.
+        psf = psf / psf.sum(dim=['xy'])
+        # Select the slice from our PSF cube that most closely corresponds to wavelength
+        # of the incoming photon. The context manager is to stop xarray from choosing chunks
+        # that are too large in the wavelength dimension which can complicate the computation.
+        with dask.config.set(**{'array.slicing.split_large_chunks': True}):
+            psf = psf.sel(wavelength=wavelengths, method='nearest')
+        # Randomly choose an index weighted by the PSF at each wavelength
+        _index = np.apply_along_axis(
+            lambda x: np.random.choice(x.size, p=x.flatten()), 1, psf.data
+        )
+        # Select the appropriate pixel variation in each direction
+        delta_positions = np.array([
+            psf.delta_pixel_x.data[_index].compute(),
+            psf.delta_pixel_y.data[_index].compute(),
+        ])
+        return delta_positions
 
 
 def compute_flux_point_source(intensity, location, channels, blur=None, **kwargs):
