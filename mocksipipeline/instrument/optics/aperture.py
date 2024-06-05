@@ -144,7 +144,7 @@ class AbstractAperture(abc.ABC):
     def get_psf(self, optical_design):
         filename = get_pkg_data_filename(f'data/psf_{optical_design.name}_{self.name}.nc',
                                          package='mocksipipeline.instrument.optics')
-        return xarray.open_dataarray(filename)
+        return xarray.open_dataarray(filename, chunks={"wavelength": 1})
 
 
 class SlotAperture(AbstractAperture):
