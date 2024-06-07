@@ -10,3 +10,5 @@ exposure_time: 3600  # in s
 cadence: 3600  # in s
 apply_electron_conversion: True
 apply_gain_conversion: True
+include_psf: True
+include_charge_spreading: True

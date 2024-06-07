@@ -7,7 +7,8 @@ import astropy.units as u
 import dask.array
 import ndcube
 import numpy as np
-from astropy.convolution import Gaussian1DKernel, convolve
+import xarray
+from astropy.convolution import Gaussian1DKernel, Tophat2DKernel, convolve
 from astropy.stats import gaussian_fwhm_to_sigma
 from astropy.wcs.utils import pixel_to_pixel
 from ndcube.extra_coords import QuantityTableCoordinate
@@ -97,6 +98,9 @@ def project_spectral_cube(instr_cube,
                           observer,
                           dt=1*u.s,
                           interval=20*u.s,
+                          pointing_jitter=None,
+                          include_psf=True,
+                          include_charge_spreading=False,
                           apply_gain_conversion=False,
                           apply_electron_conversion=False,
                           chunks=None,
@@ -106,10 +110,17 @@ def project_spectral_cube(instr_cube,
 
     Parameters
     ----------
-    spec_cube
+    instr_cube
     channel
+    observer
     dt
     interval
+    include_charge_spreading: `bool`, optional
+    include_psf: `bool`, optional
+        Whether or not to include the "jitter" due to the point spread
+        function. Note that this can significantly affect the compute time
+        because of the need to compute the wavelength-dependent scatter of
+        each photon.
     apply_electron_conversion: `bool`, optional
         If True, sum counts in electrons. Poisson sampling will still be done in
         photon space.
@@ -123,7 +134,7 @@ def project_spectral_cube(instr_cube,
     # Sample distribution
     lam = (instr_cube.data * instr_cube.unit * u.pix * dt).to_value('photon')
     if chunks is None:
-        chunks = lam.shape
+        chunks = 'auto'
     lam = dask.array.from_array(lam, chunks=chunks)
     num_iterations = int(np.ceil((interval / dt).decompose()))
     # NOTE: For a large number of iterations, this can cause strange behavior because of the
@@ -137,6 +148,8 @@ def project_spectral_cube(instr_cube,
     if apply_electron_conversion:
         # NOTE: we can select the relevant conversion factors this way because the wavelength
         # axis of lam is the same as channel.wavelength and thus their indices are aligned
+        # TODO: relax this assumption by getting the wavelength from the spectral cube and
+        # doing the conversion that way and then selecting the nonzero entries.
         unit = 'electron'
         conversion_factor = channel.electron_per_photon.to('electron / ph')
         if apply_gain_conversion:
@@ -154,16 +167,142 @@ def project_spectral_cube(instr_cube,
     # case when we have only zeros in our sample; this can happen in 1 s exposures, particularly
     # at the higher spectral orders.
     if all([idx.size == 0 for idx in idx_nonzero]):
-        idx_nonzero_overlap = [[], []]
+        hist = np.zeros((n_rows, n_cols))
     else:
         idx_nonzero_overlap = pixel_to_pixel(instr_cube.wcs, overlap_wcs, *idx_nonzero[::-1])
-    hist, _, _ = np.histogram2d(idx_nonzero_overlap[1], idx_nonzero_overlap[0],
-                                bins=(n_rows, n_cols),
-                                range=([-.5, n_rows-.5], [-.5, n_cols-.5]),
-                                weights=weights)
+        # NOTE: Using the spectral cube indices to get the wavelengths because these are explicitly
+        # aligned with the wavelength axis of the channel wavelengths (by definition)
+        # TODO: Relax this assumption by grabbing the wavelengths from the input cube instead
+        wavelengths = channel.wavelength[idx_nonzero[0]]
+        x_pixel_detector = idx_nonzero_overlap[0]
+        y_pixel_detector = idx_nonzero_overlap[1]
+        # NOTE: Sort the wavelengths here because it makes the PSF wavelength selection in the
+        # PSF jitter calculation more efficient for Dask indexing reasons. When we do this, we
+        # need to make sure we are also sorting all of the other quantities that are aligned with
+        # wavelength
+        idx_wave_sort = np.argsort(wavelengths)
+        weights = weights[idx_wave_sort]
+        x_pixel_detector = x_pixel_detector[idx_wave_sort]
+        y_pixel_detector = y_pixel_detector[idx_wave_sort]
+        wavelengths = wavelengths[idx_wave_sort]
+        # Calculate position variation due to PSF
+        if include_psf:
+            psf_jitter = calculate_psf_jitter(channel, wavelengths, pointing_jitter=pointing_jitter)
+            x_pixel_detector += psf_jitter[0]
+            y_pixel_detector += psf_jitter[1]
+        # Calculate position variation due to charge spreading
+        # NOTE: Only do charge spreading if we are in DN space
+        if include_charge_spreading and apply_gain_conversion:
+            x_pixel_detector, y_pixel_detector, weights = calculate_charge_spreading_jitter(
+                x_pixel_detector,
+                y_pixel_detector,
+                weights,
+            )
+        # Bin photon positions
+        hist, _, _ = np.histogram2d(y_pixel_detector,
+                                    x_pixel_detector,
+                                    bins=(n_rows, n_cols),
+                                    range=([-.5, n_rows-.5], [-.5, n_cols-.5]),
+                                    weights=weights)
     return ndcube.NDCube(strided_array(hist, channel.wavelength.shape[0]),
                          wcs=overlap_wcs,
                          unit=unit)
+
+
+def calculate_psf_jitter(channel, wavelengths, pointing_jitter=None):
+    """
+    Calculate variation in detector pixel position due to blurring by the PSF.
+
+    Parameters
+    ----------
+    channel
+    wavelengths
+    """
+    psf = channel.psf.persist()  # Keep as a Dask array, but put in the cluster
+    # Apply the pointing jitter here if specified
+    # NOTE: Applying this every time here is not the most performant, but means
+    # we can easily turn jitter on and off
+    if pointing_jitter is not None:
+        # NOTE: Specify pointing jitter in arcseconds but we need to convert this
+        # to the oversampled PSF grid, not just the detector pixel grid
+        # NOTE: Assume uniform and same scale in both directions
+        radius = (pointing_jitter / channel.spatial_plate_scale[0]).to_value('pixel')
+        radius /= np.diff(psf.delta_pixel_x)[0]
+        pointing_jitter_kernel = Tophat2DKernel(radius)
+        new_psf_data = np.array([convolve(_psf.data, pointing_jitter_kernel) for _psf in psf])
+        psf = xarray.DataArray(
+            data=dask.array.from_array(new_psf_data, chunks=psf.chunks),
+            coords=psf.coords,
+        )
+    # Stack the x and y dimensions along a single dimension as we are going
+    # to collapse along the two spatial dimensions anyway. This also greatly
+    # simplifies the chunking and eliminates the need to reconstitute our index shape.
+    psf = psf.stack(xy=['x','y'])
+    # Normalize the PSF such that the sum at each wavelength slice is 1
+    # The reasoning here is so that we can treat the PSF at each wavelength value
+    # as a probability distribution to sample to compute the expected variation in
+    # position from the nominal position.
+    psf = psf / psf.sum(dim=['xy'])
+    # Select the slice from our PSF cube that most closely corresponds to wavelength
+    # of the incoming photon. The context manager is to stop xarray from choosing chunks
+    # that are too large in the wavelength dimension which can complicate the computation.
+    with dask.config.set(**{'array.slicing.split_large_chunks': True}):
+        psf = psf.sel(wavelength=wavelengths, method='nearest')
+    # Randomly choose an index weighted by the PSF at each wavelength
+    _index = np.apply_along_axis(
+        lambda x: np.random.choice(x.size, p=x.flatten()), 1, psf.data
+    )
+    _index = _index.compute()
+    # Select the appropriate pixel variation in each direction
+    delta_positions = np.array([
+        psf.delta_pixel_x.data[_index].compute(),
+        psf.delta_pixel_y.data[_index].compute(),
+    ])
+    return delta_positions
+
+
+def calculate_charge_spreading_jitter(x_pixel, y_pixel, signal, kernel_width=0.1, oversample=5):
+    """
+    Apply charge spreading to each photon and the associated deposited DN.
+
+    Parameters
+    ----------
+    x_pixel
+    y_pixel
+    signal
+    width
+    oversample
+    """
+    pixel = np.array([x_pixel, y_pixel]).T
+    pixel_floor = np.floor(pixel)
+    pixel_shift = (pixel - pixel_floor)*5**(oversample-1)
+    pixel_shift = np.floor(pixel_shift).astype(int)
+    kernel_oversampled = _charge_spreading_kernel(kernel_width, oversample)
+    x_pixel_new = []
+    y_pixel_new = []
+    signal_new = []
+    for i, (sig, shift) in enumerate(zip(signal, pixel_shift)):
+        charge_spread_kernel_shifted = np.roll(kernel_oversampled, tuple(shift), axis=(0,1))
+        charge_spread_kernel_shifted = _rebin(charge_spread_kernel_shifted, (5,5))
+        for j in range(charge_spread_kernel_shifted.shape[0]):
+            for k in range(charge_spread_kernel_shifted.shape[1]):
+                x_pixel_new.append(pixel_floor[i][0]-(j-2))
+                y_pixel_new.append(pixel_floor[i][1]-(k-2))
+                signal_new.append(sig*charge_spread_kernel_shifted[j,k])
+    return np.array(x_pixel_new), np.array(y_pixel_new), u.Quantity(signal_new)
+
+
+def _rebin(x, shape):
+    return x.reshape(
+        (shape[0], x.shape[0]//shape[0], shape[1], x.shape[1]//shape[1])
+    ).sum(-1).sum(1)
+
+
+def _charge_spreading_kernel(width, oversample, x_shift=0, y_shift=0):
+    x = np.linspace(-2, 2, 5**oversample)
+    x,y = np.meshgrid(x, x)
+    kernel = np.exp(-((x-x_shift)**2 + (y-y_shift)**2) / (2*width)**2)
+    return kernel / kernel.sum()
 
 
 def compute_flux_point_source(intensity, location, channels, blur=None, **kwargs):

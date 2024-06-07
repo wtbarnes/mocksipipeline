@@ -9,7 +9,7 @@ __all__ = ['short_design', 'long_design', 'short_as_built_design']
 
 
 short_design = OpticalDesign(
-    'short tube',
+    'short_tube',
     focal_length=19.5 * u.cm,
     grating_focal_length=19.5 * u.cm,
     grating_groove_spacing=1 / 5000 * u.mm,
@@ -17,17 +17,17 @@ short_design = OpticalDesign(
 )
 
 long_design = OpticalDesign(
-    'long tube',
-    focal_length=25.5 * u.cm,
-    grating_focal_length=25.5 * u.cm,
-    grating_groove_spacing=1 / 5000 * u.mm,
-    grating_roll_angle=0 * u.deg,
+    'long_tube',
+    focal_length=25.5*u.cm,
+    grating_focal_length=25.5*u.cm,
+    grating_groove_spacing=1/5000*u.mm,
+    grating_roll_angle=0*u.deg,
 )
 
 short_as_built_design = OpticalDesign(
-    'short tube as-built',
-    focal_length=19.5 * u.cm,
-    grating_focal_length=18.21 * u.cm,
-    grating_groove_spacing=1 / 5000 * u.mm,
-    grating_roll_angle=0 * u.deg,
+    'short_tube_as-built',
+    focal_length=20.8*u.cm,
+    grating_focal_length=19.5*u.cm,
+    grating_groove_spacing=1/5000*u.mm,
+    grating_roll_angle=0*u.deg,
 )

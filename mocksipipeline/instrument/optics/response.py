@@ -13,6 +13,7 @@ from scipy.interpolate import interp1d
 from sunpy.coordinates import get_earth
 from sunpy.map import solar_angular_radius
 
+from mocksipipeline.instrument.optics.aperture import AbstractAperture
 from mocksipipeline.instrument.optics.filter import ThinFilmFilter
 
 ALLOWED_SPECTRAL_ORDERS = np.arange(-11, 12, 1)
@@ -46,7 +47,7 @@ class Channel:
         Pixel location of solar image in cartesian coordinates
     """
 
-    def __init__(self, name, filters, order, design, aperture, reference_pixel, **kwargs):
+    def __init__(self, name, filters, order, design, aperture: AbstractAperture, reference_pixel, **kwargs):
         self.name = name
         self.spectral_order = order
         self.design = design
@@ -159,9 +160,9 @@ aperture: {self.aperture}
         # spectral order is to minimize the number of wavelengths that are
         # projected completely off the detector.
         obs = get_earth('2020-01-01')
-        origin = SkyCoord(Tx=0*u.arcsec, Ty=0*u.arcsec, frame='helioprojective', observer=obs)
+        origin = SkyCoord(Tx=0 * u.arcsec, Ty=0 * u.arcsec, frame='helioprojective', observer=obs)
         # NOTE: This assumes the origin falls in the middle of the detector
-        width_pixel = (self.detector_shape[1] / 2)* u.pix
+        width_pixel = (self.detector_shape[1] / 2) * u.pix
         width_pixel += 1.25 * solar_angular_radius(origin) / self.spatial_plate_scale[0]
         wave_max = width_pixel * self.spectral_plate_scale
         if self.spectral_order != 0:
@@ -319,3 +320,7 @@ aperture: {self.aperture}
             pc_matrix=pc_matrix,
             observer=observer,
         )
+
+    @property
+    def psf(self):
+        return self.aperture.get_psf(self.design)

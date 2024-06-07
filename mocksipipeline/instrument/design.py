@@ -1,11 +1,13 @@
 """
 Class for holding full instrument design
 """
+import copy
 import dataclasses
 import pprint
 
 import astropy.units as u
 import matplotlib.pyplot as plt
+import numpy as np
 from astropy.coordinates import SkyCoord
 from sunpy.coordinates import get_earth
 from sunpy.coordinates.utils import get_limb_coordinates
@@ -18,24 +20,53 @@ class InstrumentDesign:
     name: str
     channel_list: list[Channel]
 
-    def plot_detector_layout(self, observer=None, wavelength=0*u.AA, color=None):
+    def plot_detector_layout(self, observer=None, wavelength=0*u.AA, color=None, **kwargs):
+        """
+        Plot position of solar limb on detector for all components at a given wavelength.
+
+        Parameters
+        ----------
+        observer: `~astropy.coordinates.SkyCoord`, optional
+            Location of the observer used to get the limb position. Defaults to Earth.
+        wavelength: `~astropy.Quantity`, optional
+            Wavelength of the images to plot. This determines the degree of dispersion
+        color: `str`, optional
+        """
         if observer is None:
             observer = get_earth('2020-01-01')
-        limb_coord = get_limb_coordinates(observer, resolution=100)
+        limb_coord = get_limb_coordinates(observer, resolution=kwargs.get('resolution', 500))
         origin = SkyCoord(Tx=0*u.arcsec, Ty=0*u.arcsec, frame='helioprojective', observer=observer)
 
-        fig = plt.figure()
+        fig = plt.figure(figsize=kwargs.get('figsize'))
         ax = fig.add_subplot()
-        colors = {i: f'C{i}' for i in range(5)}
+        colors = {i: f'C{i-1}' for i in range(1,12)}
+        colors[0] = 'k'  # Specifically call out the 0th order images
         for channel in self.channel_list:
             _wcs = channel.get_wcs(observer)
             px, py, _ = _wcs.world_to_pixel(limb_coord, wavelength)
+            px_o, py_o, _ = _wcs.world_to_pixel(origin, wavelength)
             _color=colors[abs(channel.spectral_order)] if color is None else color
-            ax.plot(px, py, ls='-', color=_color)
-            px, py, _ = _wcs.world_to_pixel(origin, wavelength)
-            ax.plot(px, py, ls='', marker='x', color=_color)
+            # Approximate effect of PSF as elliptical distortions of circular limb
+            extent_x = (px.max() - px.min()) * self.optical_design.pixel_size_x
+            extent_y = (py.max() - py.min()) * self.optical_design.pixel_size_y
+            psf_extent_x = copy.copy(channel.aperture.diameter)
+            psf_extent_y = copy.copy(channel.aperture.diameter)
+            if hasattr(channel.aperture, 'center_to_center_distance'):
+                psf_extent_y = psf_extent_y + channel.aperture.center_to_center_distance
+            stretch = np.array([[(psf_extent_x + extent_x) / extent_x, 0],
+                                [0, (psf_extent_y + extent_y) / extent_y]])
+            delta_px, delta_py = np.dot(stretch, np.array([px-px_o, py-py_o]))
+            # Plot undistorted limb
+            ax.plot(px, py, ls=':', color=_color)
+            # Plot distorted limb
+            ax.plot(px_o + delta_px, py_o + delta_py, ls='-', color=_color)
+            # Plot center position
+            ax.plot(px_o, py_o, ls='', marker='x', color=_color)
         ax.set_xlim(0, self.optical_design.detector_shape[1])
         ax.set_ylim(0, self.optical_design.detector_shape[0])
+        ax.set_aspect('equal')
+        if kwargs.get('return_figure', False):
+            return fig
         plt.show()
 
     def __post_init__(self):
@@ -50,7 +81,18 @@ class InstrumentDesign:
         return InstrumentDesign(combined_name, self.channel_list+instrument.channel_list)
 
     def __getitem__(self, value):
-        return {f'{c.name}_{c.spectral_order}': c for c in self.channel_list}[value]
+        # There are two ways to index an Instrument configuration
+        # 1. Through the string designation of the channel. This returns a single channel
+        # 2. Through some slice of the channel list. This will return another instrument config
+        #    or possibly a single channel
+        if isinstance(value, str):
+            return {f'{c.name}_{c.spectral_order}': c for c in self.channel_list}[value]
+        else:
+            new_channel_list = self.channel_list[value]
+            if isinstance(new_channel_list, type(self.channel_list[0])):
+                return new_channel_list
+            else:
+                return type(self)(self.name, new_channel_list)
 
     @property
     def optical_design(self):
