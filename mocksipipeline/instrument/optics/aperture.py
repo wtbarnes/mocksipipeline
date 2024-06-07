@@ -71,8 +71,6 @@ class AbstractAperture(abc.ABC):
         fft_oversample
         save_psf
         """
-        # TODO: Add an option to read from a file--could save the file using the name of the optical design
-        # and the name of the aperture
         wavelength = np.atleast_1d(wavelength)
         mask = self.mask(resolution=mask_resolution)
         x = u.Quantity(mask.coords['x'].data, mask.coords['x'].attrs['unit'])
@@ -178,8 +176,7 @@ class SlotAperture(AbstractAperture):
 
         Parameters
         ----------
-        oversample: `~astropy.units.Quantity`
-            How much to oversample the resulting mask by
+        resolution: `~astropy.units.Quantity`
 
         Returns
         -------
@@ -187,31 +184,26 @@ class SlotAperture(AbstractAperture):
             Aperture mask with appropriate coordinates
         """
         # NOTE: Add 5% safety factor for margin on array size relative to aperture size
-        aperture_size = (self.center_to_center_distance + self.diameter) * 1.05
-        # NOTE: This is done this way because np.arange annoyingly does not play well
-        # with quantities
+        aperture_size = (self.center_to_center_distance + self.diameter)*1.05
+        # NOTE: np.arange annoyingly does not play well with quantities
         start = -aperture_size/2
         stop = aperture_size/2
-        # n_step = int(np.ceil(((stop - start) / resolution).to_value(u.dimensionless_unscaled)))
         x = np.arange(start.value, (stop+resolution).to_value(start.unit), resolution.to_value(start.unit))
         x = x * start.unit
         x, y = np.meshgrid(x, x)
-
         # Lower part of slot
         r = np.sqrt((x - self.center_to_center_distance/2)**2 + y**2)
         pinhole_lower = np.where(r < self.diameter/2, 0, 1)
-
         # Upper part of slot
         r = np.sqrt((x + self.center_to_center_distance/2)**2 + y**2)
         pinhole_upper = np.where(r < self.diameter/2, 0, 1)
-
         # Middle rectangle
         x_cut = np.where(
             np.logical_and(-self.center_to_center_distance/2<=x, x<=self.center_to_center_distance/2), 1, 0)
         y_cut = np.where(np.logical_and(-self.diameter/2<=y, y<=self.diameter/2), 1, 0)
         rectangle = x_cut * y_cut
         rectangle = 0 ** rectangle
-
+        # Combine all masks
         mask = pinhole_lower * pinhole_upper * rectangle
         x_coord = xarray.DataArray(data=x[0,:].value,
                                    dims=['x'],
@@ -256,13 +248,23 @@ class CircularAperture(AbstractAperture):
         return np.pi*(self.diameter/2)**2
 
     def mask(self, resolution=1*u.micron) -> xarray.DataArray:
+        """
+        Create a boolean mask for the aperture relevant to this channel.
+
+        Parameters
+        ----------
+        resolution: `~astropy.units.Quantity`
+
+        Returns
+        -------
+        : `~xarray.DataArray`
+            Aperture mask with appropriate coordinates
+        """
         # NOTE: Add 5% safety factor for margin on array size relative to aperture size
         aperture_size = self.diameter * 1.05
-        # NOTE: This is done this way because np.arange annoyingly does not play well
-        # with quantities
+        # NOTE: np.arange annoyingly does not play well with quantities
         start = -aperture_size/2
         stop = aperture_size/2
-        #n_step = int(np.ceil(((stop - start) / resolution).to_value(u.dimensionless_unscaled)))
         x = np.arange(start.value, (stop+resolution).to_value(start.unit), resolution.to_value(start.unit))
         x = x * start.unit
         x, y = np.meshgrid(x, x)
