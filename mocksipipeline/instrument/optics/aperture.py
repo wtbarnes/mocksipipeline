@@ -8,7 +8,7 @@ import astropy.units as u
 import numpy as np
 import scipy
 import xarray
-from astropy.utils.data import get_pkg_data_filename, get_pkg_data_path
+from astropy.utils.data import get_pkg_data_path
 
 __all__ = ['SlotAperture', 'CircularAperture']
 
@@ -140,9 +140,13 @@ class AbstractAperture(abc.ABC):
         return psf_cube
 
     def get_psf(self, optical_design):
-        filename = get_pkg_data_filename(f'data/psf_{optical_design.name}_{self.name}.nc',
-                                         package='mocksipipeline.instrument.optics')
-        return xarray.open_dataarray(filename, chunks={"wavelength": 1})
+        filename = f'psf_{optical_design.name}_{self.name}.nc'
+        data_dir = pathlib.Path(get_pkg_data_path('data', package='mocksipipeline.instrument.optics'))
+        if (filepath := data_dir / filename).is_file():
+            return xarray.open_dataarray(filepath, chunks={"wavelength": 1})
+        else:
+            msg = f'No PSF file found: {filename}. Calculate and save it with {self.__class__.__name__}.calculate_psf()'
+            return FileNotFoundError(msg)
 
 
 class SlotAperture(AbstractAperture):

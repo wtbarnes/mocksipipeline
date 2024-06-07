@@ -1,3 +1,6 @@
+# Exclude the PSF files because they are too big and also fast to calculate
+mocksipipeline/instrument/optics/data/psf*.nc
+
 # Template specific
 *.pdf
 mocksipipeline/version.py
