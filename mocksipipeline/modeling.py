@@ -209,6 +209,27 @@ def project_spectral_cube(instr_cube,
                          unit=unit)
 
 
+def apply_pointing_jitter_to_psf(psf, jitter, channel):
+    """
+    Convolve PSF with a kernel to model effect of pointing jitter.
+
+    Parameters
+    ----------
+    psf
+    jitter
+    channel
+    """
+    radius = (jitter / channel.spatial_plate_scale[0]).to_value('pixel')
+    radius /= np.diff(psf.delta_pixel_x)[0]
+    pointing_jitter_kernel = Tophat2DKernel(radius)
+    new_psf_data = np.array([convolve(_psf.data, pointing_jitter_kernel) for _psf in psf])
+    psf = xarray.DataArray(
+        data=dask.array.from_array(new_psf_data, chunks=psf.chunks),
+        coords=psf.coords,
+    )
+    return psf
+
+
 def calculate_psf_jitter(channel, wavelengths, pointing_jitter=None):
     """
     Calculate variation in detector pixel position due to blurring by the PSF.
@@ -226,14 +247,7 @@ def calculate_psf_jitter(channel, wavelengths, pointing_jitter=None):
         # NOTE: Specify pointing jitter in arcseconds but we need to convert this
         # to the oversampled PSF grid, not just the detector pixel grid
         # NOTE: Assume uniform and same scale in both directions
-        radius = (pointing_jitter / channel.spatial_plate_scale[0]).to_value('pixel')
-        radius /= np.diff(psf.delta_pixel_x)[0]
-        pointing_jitter_kernel = Tophat2DKernel(radius)
-        new_psf_data = np.array([convolve(_psf.data, pointing_jitter_kernel) for _psf in psf])
-        psf = xarray.DataArray(
-            data=dask.array.from_array(new_psf_data, chunks=psf.chunks),
-            coords=psf.coords,
-        )
+        psf = apply_pointing_jitter_to_psf(psf, pointing_jitter, channel)
     # Stack the x and y dimensions along a single dimension as we are going
     # to collapse along the two spatial dimensions anyway. This also greatly
     # simplifies the chunking and eliminates the need to reconstitute our index shape.

@@ -20,7 +20,7 @@ class InstrumentDesign:
     name: str
     channel_list: list[Channel]
 
-    def plot_detector_layout(self, observer=None, wavelength=0*u.AA, color=None, **kwargs):
+    def plot_detector_layout(self, observer=None, wavelength=0*u.AA, colors=None, **kwargs):
         """
         Plot position of solar limb on detector for all components at a given wavelength.
 
@@ -30,7 +30,9 @@ class InstrumentDesign:
             Location of the observer used to get the limb position. Defaults to Earth.
         wavelength: `~astropy.Quantity`, optional
             Wavelength of the images to plot. This determines the degree of dispersion
-        color: `str`, optional
+        colors: `dict`, optional
+            Dictionary of color options with names corresponding to
+            '{channel.name}_{channel.spectral_order}'
         """
         if observer is None:
             observer = get_earth('2020-01-01')
@@ -39,13 +41,15 @@ class InstrumentDesign:
 
         fig = plt.figure(figsize=kwargs.get('figsize'))
         ax = fig.add_subplot()
-        colors = {i: f'C{i-1}' for i in range(1,12)}
-        colors[0] = 'k'  # Specifically call out the 0th order images
         for channel in self.channel_list:
             _wcs = channel.get_wcs(observer)
             px, py, _ = _wcs.world_to_pixel(limb_coord, wavelength)
             px_o, py_o, _ = _wcs.world_to_pixel(origin, wavelength)
-            _color=colors[abs(channel.spectral_order)] if color is None else color
+            if colors is None:
+                # Specifically call out the 0th order images
+                _color=f'C{abs(channel.spectral_order)-1}' if channel.spectral_order != 0 else 'k'
+            else:
+                _color = colors[f'{channel.name}_{channel.spectral_order}']
             # Approximate effect of PSF as elliptical distortions of circular limb
             extent_x = (px.max() - px.min()) * self.optical_design.pixel_size_x
             extent_y = (py.max() - py.min()) * self.optical_design.pixel_size_y
@@ -62,8 +66,18 @@ class InstrumentDesign:
             ax.plot(px_o + delta_px, py_o + delta_py, ls='-', color=_color)
             # Plot center position
             ax.plot(px_o, py_o, ls='', marker='x', color=_color)
+            # Add labels to the zeroth order components only
+            if channel.spectral_order == 0:
+                if 'filtergram' in channel.name:
+                    label = channel.filter_label
+                else:
+                    label = ' '.join(channel.name.split('_')).capitalize()
+                ax.text(px_o, py_o+180, label, va='bottom', ha='center', color='k')
         ax.set_xlim(0, self.optical_design.detector_shape[1])
         ax.set_ylim(0, self.optical_design.detector_shape[0])
+        ax.set_xlabel('Detector Pixel x')
+        ax.set_ylabel('Detector Pixel y')
+        ax.set_title(f'{wavelength=:.3f}')
         ax.set_aspect('equal')
         if kwargs.get('return_figure', False):
             return fig

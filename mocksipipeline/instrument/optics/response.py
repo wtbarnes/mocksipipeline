@@ -52,13 +52,16 @@ class Channel:
         self.spectral_order = order
         self.design = design
         self.aperture = aperture
-        self.xrt_table_name = 'Chantler'  # Intentionally hardcoding this for now
+        self.xrt_table_name = kwargs.get('xrt_table_name', 'Chantler')
         self.filters = filters
-        self.grating_file = kwargs.pop('grating_file', None)
+        self.grating_file = kwargs.get('grating_file')
         if self.grating_file is None:
             self.grating_file = get_pkg_data_filename('data/hetgD1996-11-01greffpr001N0007.fits',
                                                       package='mocksipipeline.instrument.optics')
         self.reference_pixel = reference_pixel
+        # This is hidden in a kwarg because almost always, we will want to use the default wavelength
+        # array.
+        self.wavelength = kwargs.get('wavelength')
 
     def __repr__(self):
         return f"""MOXSI Detector Channel--{self.name}
@@ -66,7 +69,7 @@ class Channel:
 Spectral order: {self.spectral_order}
 Filter: {self.filter_label}
 Detector dimensions: {self.detector_shape}
-Wavelength range: [{self.wavelength_min}, {self.wavelength_max}]
+Wavelength range: {self.wavelength[[0,-1]]}
 Spectral plate scale: {self.spectral_plate_scale}
 Spatial plate scale: {self.spatial_plate_scale}
 Reference pixel: {self.reference_pixel}
@@ -89,8 +92,10 @@ aperture: {self.aperture}
     @property
     def filter_label(self):
         label = '+'.join([f.chemical_formula for f in self.filters])
+        # NOTE: For formatting purposes, this is nicer
+        label = label.replace('Al+C22H10N2O5', 'Al-poly')
         thickness = u.Quantity([f.thickness for f in self.filters]).sum()
-        label += f', {thickness:.3f}'
+        label += f', {thickness:latex_inline}'
         return label
 
     @property
@@ -133,18 +138,30 @@ aperture: {self.aperture}
     @property
     @u.quantity_input
     def wavelength(self) -> u.angstrom:
-        delta_wave = self.spectral_plate_scale * u.pix
-        if self.spectral_order != 0:
-            # NOTE: The resolution of the wavelength array is adjusted according to the
-            # spectral order so that when reprojecting, we do not have gaps in the spectra
-            # as the wavelength array gets stretched across the detector in the case of the
-            # dispersed images.
-            delta_wave /= 2 * np.fabs(self.spectral_order)
-        return np.arange(
-            self.wavelength_min.to_value('AA'),
-            (self.wavelength_max + delta_wave).to_value('AA'),
-            delta_wave.to_value('AA'),
-        ) * u.angstrom
+        return self._wavelength
+
+    @wavelength.setter
+    def wavelength(self, value):
+        if value is None:
+            # NOTE: This should almost *always* be the route we want to take in order to
+            # properly resolve the response at the necessarily pixel scale while also not
+            # computing wavelengths that fall off the detector
+            delta_wave = self.spectral_plate_scale * u.pix
+            if self.spectral_order != 0:
+                # NOTE: The resolution of the wavelength array is adjusted according to the
+                # spectral order so that when reprojecting, we do not have gaps in the spectra
+                # as the wavelength array gets stretched across the detector in the case of the
+                # dispersed images.
+                delta_wave /= 2 * np.fabs(self.spectral_order)
+            self._wavelength = np.arange(
+                self.wavelength_min.to_value('AA'),
+                (self.wavelength_max + delta_wave).to_value('AA'),
+                delta_wave.to_value('AA'),
+            ) * u.angstrom
+        else:
+            # This branch is just for convenience when we want to occasionally compute channel
+            # properties on other wavelength grids.
+            self._wavelength = value
 
     @property
     @u.quantity_input
@@ -310,7 +327,7 @@ aperture: {self.aperture}
         # NOTE: Calculated based on the information in the numpy docs for arange
         # https://numpy.org/doc/stable/reference/generated/numpy.arange.html
         wave_step = self.spectral_plate_scale * u.pix
-        wave_interval = self.wavelength_max - self.wavelength_min
+        wave_interval = self.wavelength[-1] - self.wavelength[0]
         wave_shape = (np.ceil((wave_interval / wave_step).decompose().value).astype(int),)
         return overlappogram_fits_wcs(
             wave_shape + self.detector_shape,
