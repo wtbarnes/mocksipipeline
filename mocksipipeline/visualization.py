@@ -101,6 +101,7 @@ def plot_labeled_spectrum(spectra_components, line_list=None, source_location=No
     x_lim = kwargs.pop('x_lim', None)
     y_lim = kwargs.pop('y_lim', None)
     log_y = kwargs.pop('log_y', True)
+    ls = kwargs.pop('ls', '-')
     threshold = kwargs.pop('threshold', None)
     figsize = kwargs.pop('figsize', (20,10))
     skip_component_labels = kwargs.pop('skip_component_labels', [])
@@ -114,9 +115,9 @@ def plot_labeled_spectrum(spectra_components, line_list=None, source_location=No
         label = labels[k] if labels else k
         color = colors[k] if colors else None
         if ax is None:
-            ax = v[0,0,:].plot(label=label, color=color)
+            ax = v[0,0,:].plot(label=label, color=color, ls=ls)
         else:
-            v[0,0,:].plot(axes=ax, label=label, color=color)
+            v[0,0,:].plot(axes=ax, label=label, color=color, ls=ls)
         if line_list and source_location and k not in skip_component_labels:
             annotate_lines(ax,
                            v[0,0,:],
@@ -153,6 +154,8 @@ def plot_detector_image(moxsi_collection,
     figsize = kwargs.get('figsize', (20,20))
     cmap = kwargs.get('cmap', 'hinodexrt')
     norm = kwargs.get('norm')
+    wave_index = kwargs.get('wave_index', 0)
+    draw_prime_key_limb = kwargs.get('draw_prime_key_limb', False)
     prime_component = moxsi_collection[prime_key]
     # Build figure
     fig = plt.figure(figsize=figsize, layout='tight')
@@ -160,7 +163,7 @@ def plot_detector_image(moxsi_collection,
     if norm is None:
         _, vmax = AsymmetricPercentileInterval(1, 99.9).get_limits(prime_component.data[0,...])
         norm = ImageNormalize(vmin=0, vmax=vmax, stretch=LogStretch())
-    prime_component[0,...].plot(axes=ax, cmap=cmap, interpolation='none', norm=norm)
+    prime_component[wave_index,...].plot(axes=ax, cmap=cmap, interpolation='none', norm=norm)
 
     # Ticks and direction annotationes
     grid_color = kwargs.get('grid_color', 'w')
@@ -212,26 +215,27 @@ def plot_detector_image(moxsi_collection,
             'spectrogram_slot_0',
             'spectrogram_pinhole_0',
         ]
+        if draw_prime_key_limb and prime_key not in zero_order_components:
+            zero_order_components += [prime_key]
         limb_color = kwargs.get('limb_color', 'w')
         for k in zero_order_components:
-            _wcs = moxsi_collection[k][0,...].wcs
+            _wcs = moxsi_collection[k][wave_index,...].wcs
             px, py = _wcs.world_to_pixel(limb_coord)
             ax.plot(px, py, ls='--', color=limb_color, lw=0.5)
 
     # Add wavelength annotations
-    annotate_kw = {
-        'textcoords': 'offset points',
-        'color': 'w',
-        'arrowprops': dict(color='w', arrowstyle='-|>', lw=1),
-        'horizontalalignment':'center',
-        'verticalalignment':'center',
-        'rotation':90,
-        'fontsize': plt.rcParams['xtick.labelsize']*0.8,
-        'weight': 'bold',
-    }
-    annotate_kw.update(kwargs.get('annotate_kwargs', {}))
-
     if line_list:
+        annotate_kw = {
+            'textcoords': 'offset points',
+            'color': 'w',
+            'arrowprops': dict(color='w', arrowstyle='-|>', lw=1),
+            'horizontalalignment':'center',
+            'verticalalignment':'center',
+            'rotation':90,
+            'fontsize': plt.rcParams['xtick.labelsize']*0.8,
+            'weight': 'bold',
+        }
+        annotate_kw.update(kwargs.get('annotate_kwargs', {}))
         annot_pt = moxsi_collection['filtergram_1_0'][0,...].wcs.array_index_to_world(
             *np.unravel_index(moxsi_collection['filtergram_1_0'].data[0].argmax(),
                             moxsi_collection['filtergram_1_0'].data[0].shape)

@@ -8,7 +8,7 @@ import astropy.units as u
 import numpy as np
 import xarray
 from astropy.wcs import WCS
-from ndcube import NDCube
+from ndcube import NDCollection, NDCube
 from ndcube.extra_coords import QuantityTableCoordinate
 from overlappy.io import read_overlappogram
 from overlappy.util import strided_array
@@ -20,6 +20,7 @@ __all__ = [
     'read_cube_with_xarray',
     'write_cube_with_xarray',
     'dem_table_to_ndcube',
+    'build_moxsi_collection',
 ]
 
 
@@ -166,3 +167,26 @@ def dem_table_to_ndcube(dem_table):
                                         names='temperature',
                                         physical_types='phys.temperature')
     return NDCube(em, wcs=tab_coord.wcs, meta=dem_table.meta)
+
+
+def build_moxsi_collection(results_dir, all_components_sum=True):
+    """
+    Build a collection of cubes holding different MOXSI components from a directory of FITS files
+
+    Parameters
+    ----------
+    results_dir: path-like
+    all_components_sum: `bool`
+        If True, it is assumed there is a file called "all_components.fits" in this directory
+        and every member of the collection will use that data array, just with a different WCS.
+    """
+    results_dir = pathlib.Path(results_dir)
+    image_dict = {f.stem: read_overlappogram(f) for f in results_dir.glob('*.fits')}
+    if all_components_sum:
+        all_components = image_dict.pop('all_components')
+        return NDCollection(
+            {k: NDCube(all_components.data, wcs=v.wcs, meta=v.meta, unit=v.unit)
+             for k,v in image_dict.items()}
+        )
+    else:
+        return NDCollection(image_dict)

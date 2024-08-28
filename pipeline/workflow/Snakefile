@@ -9,7 +9,8 @@ instrument_design = getattr(mocksipipeline.instrument.configuration, config["ins
 
 XRT_FILTERS = ['Be-thin:Open',]
 AIA_FILTERS = ['94', '131', '171', '193', '211', '335']
-CHANNEL_NAMES = [f'{c.name}_{c.spectral_order}' for c in instrument_design.channel_list]
+CHANNEL_NAMES = [f'{c.name}_{c.spectral_order}' for c in instrument_design.channel_list
+                 if abs(c.spectral_order)<=int(config["max_spectral_order"])]
 
 
 rule sum_components:

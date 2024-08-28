@@ -86,20 +86,15 @@ def calculate_response_kernels(collection, temperature, spectral_table):
             wavelength = trf.channel_wavelength.to_value('ph Angstrom') * u.angstrom
             gain = wavelength.to('eV', equivalencies=u.equivalencies.spectral()) / u.photon
             gain /= (trf.ev_per_electron * trf.ccd_gain_right)
-            # NOTE: the xrtpy package makes use of the new unit in astropy DN which is much more commonly used
-            # in solar physics. However, DN is not a unit recognized in the FITS standard so we substitute it
-            # for count. This is currently the unit that we use in sunpy in place of DN.
-            gain = gain * u.count / u.DN
             response = ea * gain * pix_solid_angle
             response *= get_cross_calibration_factor(key)
-
         else:
             raise KeyError(f'Unrecognized key {key}. Should be an AIA channel or XRT filter wheel combination.')
         T, tresp = compute_temperature_response(spectral_table, wavelength, response, return_temperature=True)
         kernels[key] = np.interp(temperature, T, tresp)
         # NOTE: This explicit unit conversion is just to ensure there are no units issues when doing the inversion
         # (since units are stripped off in the actual calculation).
-        kernels[key] = kernels[key].to('cm5 ct pix-1 s-1')
+        kernels[key] = kernels[key].to('cm5 DN pix-1 s-1')
 
     return kernels
 
@@ -110,9 +105,9 @@ class HK12Model(GenericModel):
         errors = np.array([self.data[k].uncertainty.array.squeeze() for k in self._keys]).T
         from demregpy import dn2dem
         dem, edem, elogt, chisq, dn_reg = dn2dem(
-            self.data_matrix.value.T,
+            self.data_matrix.T,
             errors,
-            self.kernel_matrix.value.T,
+            self.kernel_matrix.T,
             np.log10(self.kernel_temperatures.to_value(u.K)),
             self.temperature_bin_edges.to_value(u.K),
             max_iter=max_iterations,
@@ -122,7 +117,8 @@ class HK12Model(GenericModel):
             gloci=use_em_loci,
             **kwargs,
         )
-        dem_unit = self.data_matrix.unit / self.kernel_matrix.unit / self.temperature_bin_edges.unit
+        _key = self._keys[0]
+        dem_unit = self.data[_key].unit / self.kernel[_key].unit / self.temperature_bin_edges.unit
         uncertainty = edem.T * dem_unit
         em = (dem * np.diff(self.temperature_bin_edges)).T * dem_unit
         dem = dem.T * dem_unit
@@ -158,7 +154,7 @@ def compute_em(collection, kernels, temperature_bin_edges, kernel_temperatures):
     dem_res = dem_model.fit(**dem_settings)
     # NOTE: not clear why there are negative values when resulting DEM
     # should be strictly positive
-    dem_data = np.where(dem_res['em'].data < 0.0, 0.0, dem_res['em'].data)
+    dem_data = np.where(dem_res['em'].data<0.0, 0.0, dem_res['em'].data)
     return ndcube.NDCube(dem_data,
                          wcs=dem_res['em'].wcs,
                          meta=dem_res['em'].meta,
@@ -174,9 +170,9 @@ if __name__ == '__main__':
     delta_log_t = float(snakemake.config['delta_log_t'])
     temperature_bin_edges = 10**np.arange(
         float(snakemake.config['log_t_left_edge']),
-        float(snakemake.config['log_t_right_edge']) + delta_log_t,
+        float(snakemake.config['log_t_right_edge'])+delta_log_t,
         delta_log_t,
-    ) * u.K
+    )*u.K
     # Read in spectral table
     spectral_table_name = snakemake.config['spectral_table']
     if pathlib.Path(spectral_table_name).is_file():
@@ -185,7 +181,7 @@ if __name__ == '__main__':
     else:
         spectral_table = get_spectral_tables()[spectral_table_name]
     # Compute temperature response functions
-    temperature_kernel = 10**np.arange(5, 8, 0.05) * u.K
+    temperature_kernel = 10**np.arange(5, 8, 0.05)*u.K
     kernels = calculate_response_kernels(collection,
                                          temperature_kernel,
                                          spectral_table)
