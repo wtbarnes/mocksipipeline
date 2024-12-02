@@ -166,30 +166,39 @@ def plot_detector_image(moxsi_collection,
     prime_component[wave_index,...].plot(axes=ax, cmap=cmap, interpolation='none', norm=norm)
 
     # Ticks and direction annotationes
-    grid_color = kwargs.get('grid_color', 'w')
-    color_lat_lon_axes(ax, lon_color=grid_color, lat_color=grid_color)
-    ax.coords[0].set_ticklabel(rotation=90, color='k')
-    ax.coords[1].set_ticklabel(color='k')
-    ax.coords[0].grid(ls=':', color=grid_color)
-    ax.coords[1].grid(ls=':', color=grid_color)
-    ax.coords[1].set_axislabel('HPC Longitude', color='k')
-    ax.coords[0].set_axislabel('HPC Latitude', color='k')
-    for c in ax.coords:
-        c.set_ticks(([-1000, 0, 1000]*u.arcsec).to('deg'))
-        c.set_major_formatter('s')
+    if kwargs.get('hide_tick_and_axes_labels'):
+        ax.coords[0].set_ticks_visible(False)
+        ax.coords[0].set_ticklabel_visible(False)
+        ax.coords[0].set_axislabel('')
+        ax.coords[1].set_ticks_visible(False)
+        ax.coords[1].set_ticklabel_visible(False)
+        ax.coords[1].set_axislabel('')
+    else:
+        grid_color = kwargs.get('grid_color', 'w')
+        color_lat_lon_axes(ax, lon_color=grid_color, lat_color=grid_color)
+        ax.coords[0].set_ticklabel(rotation=90, color='k')
+        ax.coords[1].set_ticklabel(color='k')
+        ax.coords[0].grid(ls=':', color=grid_color)
+        ax.coords[1].grid(ls=':', color=grid_color)
+        ax.coords[1].set_axislabel('HPC Longitude', color='k')
+        ax.coords[0].set_axislabel('HPC Latitude', color='k')
+        for c in ax.coords:
+            c.set_ticks(([-1000, 0, 1000]*u.arcsec).to('deg'))
+            c.set_major_formatter('s')
 
     # Add directional arrow
-    head_coord = (-1900, 400)*u.arcsec
-    arrow_length = (0, 800)*u.arcsec
-    add_arrow_from_coords(ax, head_coord-arrow_length, head_coord, color='C4', mutation_scale=25,)
-    ax.text(
-        *head_coord.to_value('deg'),
-        'N',
-        va='center',
-        ha='left',
-        color='C4',
-        transform=ax.get_transform('world'),
-    )
+    if kwargs.get('label_north', True):
+        head_coord = (-1900, 400)*u.arcsec
+        arrow_length = (0, 800)*u.arcsec
+        add_arrow_from_coords(ax, head_coord-arrow_length, head_coord, color='C4', mutation_scale=25,)
+        ax.text(
+            *head_coord.to_value('deg'),
+            'N',
+            va='center',
+            ha='left',
+            color='C4',
+            transform=ax.get_transform('world'),
+        )
 
     # Add labels to filtergrams
     # FIXME: Pull this from the metadata once it exists there. This correspondence is not guaranteed to always
@@ -263,21 +272,22 @@ def plot_detector_image(moxsi_collection,
                 )
                 pos_previous = row['MOXSI pixel']
 
-    cbar_kwargs = {
-        'ax': ax,
-        'orientation': 'horizontal',
-        'location': 'top',
-        'pad': 0.01,
-        'aspect': 70,
-        'extend': 'max' if norm.vmax<prime_component.data.max() else 'neither',
-        'extendfrac': 0.02,
-        'shrink': 0.8,
-        'format': matplotlib.ticker.LogFormatterMathtext(base=10.0,),
-        'ticks': [0, 100, 1000, 1e4],
-        'label': f'[{prime_component.unit:latex_inline}]'
-    }
-    cbar_kwargs.update(kwargs.get('cbar_kwargs', {}))
-    fig.colorbar(ax.get_images()[0], **cbar_kwargs)
+    if kwargs.get('add_colorbar', True):
+        cbar_kwargs = {
+            'ax': ax,
+            'orientation': 'horizontal',
+            'location': 'top',
+            'pad': 0.01,
+            'aspect': 70,
+            'extend': 'max' if norm.vmax<prime_component.data.max() else 'neither',
+            'extendfrac': 0.02,
+            'shrink': 0.8,
+            'format': matplotlib.ticker.LogFormatterMathtext(base=10.0,),
+            'ticks': [0, 100, 1000, 1e4],
+            'label': f'[{prime_component.unit:latex_inline}]'
+        }
+        cbar_kwargs.update(kwargs.get('cbar_kwargs', {}))
+        fig.colorbar(ax.get_images()[0], **cbar_kwargs)
 
     return fig
 
