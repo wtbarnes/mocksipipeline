@@ -96,8 +96,8 @@ def convolve_with_response(cube, channel, include_gain=False):
 def project_spectral_cube(instr_cube,
                           channel,
                           observer,
-                          dt=1*u.s,
-                          interval=20*u.s,
+                          exposure=1*u.s,
+                          integration=20*u.s,
                           pointing_jitter=None,
                           include_psf=True,
                           include_charge_spreading=False,
@@ -113,8 +113,12 @@ def project_spectral_cube(instr_cube,
     instr_cube
     channel
     observer
-    dt
-    interval
+    exposure: `~astropy.units.Quantity`, optional
+        Camera exposure time. Defaults to 1 s.
+    integration: `~astropy.units.Quantity`, optional
+        Total time over which to stack sequential exposures. The ratio of
+        this interval to ``exposure`` is what determines the number of samples
+        taken.
     include_charge_spreading: `bool`, optional
     include_psf: `bool`, optional
         Whether or not to include the "jitter" due to the point spread
@@ -132,11 +136,11 @@ def project_spectral_cube(instr_cube,
     if apply_gain_conversion and not apply_electron_conversion:
         raise ValueError('Cannot convert to DN without also setting apply_electron_conversion=True')
     # Sample distribution
-    lam = (instr_cube.data * instr_cube.unit * u.pix * dt).to_value('photon')
+    lam = (instr_cube.data * instr_cube.unit * u.pix * exposure).to_value('photon')
     if chunks is None:
         chunks = 'auto'
     lam = dask.array.from_array(lam, chunks=chunks)
-    num_iterations = int(np.ceil((interval / dt).decompose()))
+    num_iterations = int(np.ceil((integration / exposure).decompose()))
     # NOTE: For a large number of iterations, this can cause strange behavior because of the
     # very large size of the array
     samples = dask.array.random.poisson(lam=lam, size=(num_iterations,)+lam.shape).sum(axis=0)

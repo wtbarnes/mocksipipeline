@@ -13,3 +13,4 @@ apply_gain_conversion: True
 include_psf: True
 include_charge_spreading: True
 max_spectral_order: 100  # High enough to include all orders by default
+pointing_jitter: 30  # in arcsec
