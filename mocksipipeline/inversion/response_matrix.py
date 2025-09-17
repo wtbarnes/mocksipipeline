@@ -11,6 +11,7 @@ from astropy.coordinates import SkyCoord
 from scipy.interpolate import interp1d
 from sunpy.coordinates import Helioprojective, get_earth
 from synthesizAR.atomic.idl import spectrum_to_cube
+from joblib import Parallel, delayed       
 
 __all__ = [
     'compute_effective_spectra',
@@ -89,7 +90,7 @@ def compute_response_matrix(spectral_table, instrument_design, extent=2500*u.arc
                                            scale=plate_scale,
                                            rotation_angle=roll_angle)
     wcs_prime = astropy.wcs.WCS(header=header)
-    wcs_dispersed = [chan.get_wcs(observer, roll_angle=roll_angle, dispersion_angle=0*u.deg)
+    wcs_dispersed = [chan.get_wcs(observer, roll_angle=roll_angle)
                      for chan in instrument_design.channel_list]
     # Find primed pixels (sometimes called "field angles"). This is a row in the primed FOV that is
     # aligned with the dispersion direction
@@ -106,13 +107,11 @@ def compute_response_matrix(spectral_table, instrument_design, extent=2500*u.arc
                              spectra_eff[0].data.shape[:1] +
                              (len(instrument_design.channel_list),))
     response_matrix = np.zeros(response_matrix_shape)
-    # Connect to Dask cluster
-    client = distributed.get_client()
+
     for i_order, (chan, wcs_d) in enumerate(zip(instrument_design.channel_list, wcs_dispersed)):
-        pixel_indices = client.gather(
-                            client.map(lambda x: np.array(wcs_d.world_to_array_index(coord_prime, x)[2]),
-                                       chan.wavelength)
-                        )
+        pixel_indices = Parallel(n_jobs=-1)(
+        	delayed(lambda x: np.array(wcs_d.world_to_array_index(coord_prime, x)[2]))
+        	(wavelength) for wavelength in chan.wavelength)
         for i_wave, i_pix in enumerate(pixel_indices):
             in_bounds = np.where(np.logical_and(i_pix >= 0, i_pix < response_matrix.shape[1]))
             # NOTE: indexing this way assumes that channel.wavelength and
@@ -127,7 +126,7 @@ def compute_response_matrix(spectral_table, instrument_design, extent=2500*u.arc
             'spectral_order': [chan.spectral_order for chan in instrument_design.channel_list],
         },
         attrs={
-            'unit': spectra_eff[0].unit.to_string(format='fits'),
+            'unit': spectra_eff[0].unit.to_string(format='generic'),		#SC changes format from fits to generic as temp fix 08/20/2025
             **spectral_table.meta,
         },
     )
