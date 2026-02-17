@@ -146,7 +146,7 @@ class AbstractAperture(abc.ABC):
             return xarray.open_dataarray(filepath, chunks={"wavelength": 1})
         else:
             msg = f'No PSF file found: {filename}. Calculate and save it with {self.__class__.__name__}.calculate_psf()'
-            return FileNotFoundError(msg)
+            raise FileNotFoundError(msg)
 
 
 class SlotAperture(AbstractAperture):
