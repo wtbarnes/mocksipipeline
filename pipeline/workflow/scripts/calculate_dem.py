@@ -83,7 +83,8 @@ def calculate_response_kernels(collection, temperature, spectral_table):
             trf = xrtpy.response.TemperatureResponseFundamental(_key, smap.date)
             ea = trf.effective_area()
             # NOTE: This is somewhat confusingly in units of ph Angstroms
-            wavelength = trf.channel_wavelength.to_value('ph Angstrom') * u.angstrom
+            #wavelength = trf.channel_wavelength.to_value('ph Angstrom') * u.angstrom
+            wavelength = trf.wavelength
             gain = wavelength.to('eV', equivalencies=u.equivalencies.spectral()) / u.photon
             gain /= (trf.ev_per_electron * trf.ccd_gain_right)
             response = ea * gain * pix_solid_angle
