@@ -44,7 +44,8 @@ rule calculate_dem:
         expand(root_dir / 'level_2' / 'xrt_{filter}.fits', filter=XRT_FILTERS),
         expand(root_dir / 'level_2' / 'aia_{filter}.fits', filter=AIA_FILTERS),
         expand(root_dir / 'uncertainty' / 'xrt_{filter}.fits', filter=XRT_FILTERS),
-        expand(root_dir / 'uncertainty' / 'aia_{filter}.fits', filter=AIA_FILTERS)
+        expand(root_dir / 'uncertainty' / 'aia_{filter}.fits', filter=AIA_FILTERS), 
+        correction_table = root_dir / 'aia_correction_table.asdf'
     output:
         root_dir / 'dem_cube.nc'
     script:
@@ -79,7 +80,7 @@ rule download_pointing_table:
         import astropy.units as u
         from astropy.table import QTable
         obstime = astropy.time.Time(config["obstime"])
-        tab = get_pointing_table(obstime-6*u.h, obstime+6*u.h)
+        tab = get_pointing_table("JSOC",time_range=(obstime-6*u.h, obstime+6*u.h))
         tab = QTable(tab)
         tab.meta.clear()  # Cannot serialize JSOCClient object
         tab.write(output[0])
@@ -90,7 +91,7 @@ rule download_correction_table:
     run:
         from aiapy.calibrate.util import get_correction_table
         from astropy.table import QTable
-        tab = get_correction_table()
+        tab = get_correction_table("JSOC")        
         tab = QTable(tab)
         tab.meta.clear()  # Cannot serialize JSOCClient object
         tab.write(output[0])

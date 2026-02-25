@@ -21,8 +21,7 @@ def apply_instrument_corrections(smap, pointing_table, correction_table):
     if 'AIA' in smap.instrument:
         smap = aiapy.calibrate.update_pointing(smap, pointing_table=pointing_table)
         smap = aiapy.calibrate.correct_degradation(smap,
-                                                   correction_table=correction_table,
-                                                   calibration_version=8,)
+                                                   correction_table=correction_table) #SC removed calibration_version=8 08/27/25
         smap /= smap.exposure_time
     elif 'XRT' in smap.instrument:
         # NOTE: the level 2 maps do not have a unit designation in their header but based on
