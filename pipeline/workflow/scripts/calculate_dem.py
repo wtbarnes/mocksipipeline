@@ -2,6 +2,7 @@
 Script to compute DEM cube constrained by EUV and SXR images.
 """
 import pathlib
+import warnings
 
 import aiapy.response
 import astropy.units as u
@@ -57,7 +58,7 @@ def get_cross_calibration_factor(key):
         return 2.5
 
 
-def calculate_response_kernels(collection, temperature, spectral_table, correction_table=None):
+def calculate_response_kernels(collection, temperature, spectral_table):
     kernels = {}
     for key in collection:
         # NOTE: Make a map here to make it easier to access the needed
@@ -74,7 +75,7 @@ def calculate_response_kernels(collection, temperature, spectral_table, correcti
             c = aiapy.response.Channel(smap.wavelength)
             # NOTE: Intentionally not including the obstime here to include the degradation correction
             # because the input maps have already been corrected for degradation.
-            response = c.wavelength_response(correction_table=correction_table) * pix_solid_angle
+            response = c.wavelength_response() * pix_solid_angle
             wavelength = c.wavelength
         elif 'XRT' in smap.instrument:
             # NOTE: The filter wheel designations can be in either order
@@ -101,33 +102,37 @@ def calculate_response_kernels(collection, temperature, spectral_table, correcti
 class SimpleRegModel(GenericModel):
     """
     Simple regularized DEM inversion model.
-    
+
     This model uses Joe Plowman's simple_reg_dem algorithm which performs a regularized
     inversion with smoothness constraints to compute the DEM.
     """
 
-    def _model(self, kmax=100, kcon=5, steps=[0.1, 0.5], drv_con=8.0, 
-               chi2_th=1.0, tol=0.1, **kwargs):
+    def _model(self, kmax=100, kcon=5, steps=[0.1, 0.5], drv_con=8.0, chi2_th=1.0, tol=0.1, **kwargs):
         """
         Parameters
         ----------
-        kmax : Maximum number of iterations (default: 100)
-        kcon : Initial number of steps before terminating if chi^2 never improves (default: 5)
-        steps : Two element list containing [small, large] step sizes (default: [0.1, 0.5])
-        drv_con : Derivative constraint - threshold limiting change in log DEM per unit 
-            log temperature (default: 8.0)
-        chi2_th : Reduced chi^2 threshold for termination (default: 1.0)
-        tol : Tolerance for convergence to chi2_th (default: 0.1)
-        
+        kmax: `int`
+            Maximum number of iterations (default: 100)
+        kcon: `int`
+            Initial number of steps before terminating if chi^2 never improves (default: 5)
+        steps: array-like
+            Two element list containing [small, large] step sizes (default: [0.1, 0.5])
+        drv_con: `float`
+            Derivative constraint - threshold limiting change in log DEM per unit log temperature (default: 8.0)
+        chi2_th: `float`
+            Reduced chi^2 threshold for termination (default: 1.0)
+        tol: `float`
+            Tolerance for convergence to chi2_th (default: 0.1)
+
         Returns
         -------
-        Dictionary containing 'dem', 'em', and 'chi_squared' arrays
+        : `dict`
+            Dictionary containing 'dem', 'em', and 'chi_squared' arrays
         """
         # Inputs
         errors = np.array([self.data[k].uncertainty.array.squeeze() for k in self._keys]).T
         exptimes = np.array([self.data[k].meta.get('exptime') for k in self._keys])
-        logt = np.log10(self.kernel_temperatures.to_value(u.K)) 
-        
+        logt = np.log10(self.kernel_temperatures.to_value(u.K))
         # Call simple_reg_dem
         dems, chi2 = simple_reg_dem(
             self.data_matrix.T,
@@ -142,21 +147,16 @@ class SimpleRegModel(GenericModel):
             chi2_th=chi2_th,
             tol=tol,
         )
-        
         # Transpose so temperature is first axis
         dems = dems.T
-        
         # Calculate units
         _key = self._keys[0]
         dem_unit = self.data[_key].unit / self.kernel[_key].unit / self.temperature_bin_edges.unit
         em_unit = self.data[_key].unit / self.kernel[_key].unit
-        
         # Convert DEM to EM by multiplying by delta log T
         delta_log_t = np.diff(np.log10(self.temperature_bin_edges.to_value(u.K)))
         em = (dems * delta_log_t[:, np.newaxis, np.newaxis]) * em_unit
         dem = dems * dem_unit
-        
-                
         return {
             'dem': dem,
             'em': em,
@@ -168,21 +168,27 @@ class SimpleRegModel(GenericModel):
         return kwargs.get('model') == 'simple_reg_dem'
 
 
-def compute_em(collection, kernels, temperature_bin_edges, kernel_temperatures):
+def compute_em(collection, kernels, temperature_bin_edges, kernel_temperatures, **kwargs):
     """
     Run the simple_reg_dem model and return an EM data cube.
-    
+
     Parameters
     ----------
-    collection : Collection of NDCubes with intensity data and uncertainties
-    kernels : Dictionary of temperature response functions for each channel
-    temperature_bin_edges : Temperature bin edges
-    kernel_temperatures : Temperatures at which kernels are evaluated
-    dem_settings : Settings to pass to the simple_reg_dem algorithm
-    
+    collection: `ndcube.NDCollection`
+        Collection of NDCubes with intensity data and uncertainties
+    kernels: `dict`
+        Dictionary of temperature response functions for each channel
+    temperature_bin_edges: `~astropy.units.Quantity`
+        Temperature bin edges
+    kernel_temperatures: `~astropy.units.Quantity`
+        Temperatures at which kernels are evaluated
+    kwargs:
+        Settings to pass to the simple_reg_dem algorithm
+
     Returns
     -------
-    Emission measure cube with dimensions [n_temp, nx, ny]
+    : `ndcube.NDCube`
+        Emission measure cube with dimensions [n_temp, nx, ny]
     """
     dem_settings = {
         'kmax': 100,
@@ -192,7 +198,6 @@ def compute_em(collection, kernels, temperature_bin_edges, kernel_temperatures):
         'chi2_th': 1.0,
         'tol': 0.1,
     }
-    
     dem_model = Model(
         collection,
         kernels,
@@ -200,16 +205,14 @@ def compute_em(collection, kernels, temperature_bin_edges, kernel_temperatures):
         kernel_temperatures=kernel_temperatures,
         model='simple_reg_dem'
     )
-    
     # Fit the model
     dem_res = dem_model.fit(**dem_settings)
     # Ensure non-negative values
     em_data = dem_res['em'].data
-    
     if not np.all(em_data >= 0.0):
-    	print("The EM array is not strictly positive, replacing negatives with 0.0")
-    	em_data = np.where(em_data < 0.0, 0.0, em_data)
-       
+        warnings.warn("The EM array is not strictly positive, replacing negatives with 0.0")
+        em_data = np.where(em_data < 0.0, 0.0, em_data)
+
     return ndcube.NDCube(
         em_data,
         wcs=dem_res['em'].wcs,
@@ -222,13 +225,8 @@ def compute_em(collection, kernels, temperature_bin_edges, kernel_temperatures):
 if __name__ == '__main__':
     # Read in the maps and correction table
     all_maps = sunpy.map.Map(snakemake.input[:-1])
-    correction_table_path = snakemake.input['correction_table']
-    from astropy.table import QTable
-    correction_table = QTable.read(correction_table_path)
-    
     # Build collection
     collection = build_map_collection(all_maps)
-    
     # Construct temperature bins
     delta_log_t = float(snakemake.config['delta_log_t'])
     temperature_bin_edges = 10**np.arange(
@@ -236,7 +234,6 @@ if __name__ == '__main__':
         float(snakemake.config['log_t_right_edge']) + delta_log_t,
         delta_log_t,
     ) * u.K
-    
     # Read in spectral table
     spectral_table_name = snakemake.config['spectral_table']
     if pathlib.Path(spectral_table_name).is_file():
@@ -244,20 +241,16 @@ if __name__ == '__main__':
         spectral_table = read_spectral_table(spectral_table_name)
     else:
         spectral_table = get_spectral_tables()[spectral_table_name]
-    
     # Compute temperature response functions
     # Calculate temperature bin centers for kernel evaluation
     logt_edges = np.log10(temperature_bin_edges.to_value(u.K))
     logt_centers = (logt_edges[:-1] + logt_edges[1:]) / 2.0
     temperature_kernel = 10**logt_centers * u.K
-    
     kernels = calculate_response_kernels(
         collection,
         temperature_kernel,
         spectral_table,
-        correction_table=correction_table
     )
-    
     # Compute EM cube using simple_reg_dem
     em_cube = compute_em(
         collection,
@@ -265,6 +258,5 @@ if __name__ == '__main__':
         temperature_bin_edges,
         temperature_kernel
     )
-    
     # Save to disk
     write_cube_with_xarray(em_cube, 'temperature', all_maps[0].wcs, snakemake.output[0])

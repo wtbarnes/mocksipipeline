@@ -15,7 +15,7 @@ authors = [
 license = {file="license/LICENSE.rst"}
 requires-python = ">=3.12"
 dependencies = [
-    "aiapy",
+    "aiapy>=0.12",
     "asdf-astropy",
     "astropy",
     "dask",
