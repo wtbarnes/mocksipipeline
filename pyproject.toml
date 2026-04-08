@@ -1,16 +1,106 @@
 [build-system]
-
 requires = ["setuptools",
             "setuptools_scm",
             "wheel"]
+build-backend = "setuptools.build_meta"
 
-build-backend = 'setuptools.build_meta'
+[project]
+name = "mocksipipeline"
+dynamic = ["version"]
+description = "Pipeline for generating synthetic MOXSI data"
+readme = {file="README.rst", content-type = "text/rst"}
+authors = [
+  {name="Will Barnes", email="will.t.barnes@gmail.com"}
+]
+license = {file="license/LICENSE.rst"}
+requires-python = ">=3.12"
+dependencies = [
+    "aiapy",
+    "asdf-astropy",
+    "astropy",
+    "dask",
+    "distributed",
+    "demregpy",
+    "hissw",
+    "joblib",
+    "ndcube",
+    "overlappy @ git+https://github.com/wtbarnes/overlappy.git@main",
+    "parse",
+    "scipy",
+    "snakemake",
+    "sunkit-dem @ git+https://github.com/sunpy/sunkit-dem.git@main",
+    "sunpy[all]>=4.1",
+    "synthesizAR[atomic] @ git+https://github.com/wtbarnes/synthesizAR.git@main",
+    "thermo",
+    "xarray",
+    "xrt",
+    "xrtpy @ git+https://github.com/HinodeXRT/xrtpy.git@main",
+]
+
+[project.optional-dependencies]
+all = ["mocksipipeline"]
+test =[
+    "pytest",
+    "pytest-doctestplus",
+    "pytest-cov",
+]
+docs = [
+    "sphinx",
+    "sphinx-automodapi",
+]
+
+[tool.setuptools]
+packages = ["mocksipipeline"]
+
+[tool.setuptools_scm]
+write_to = "mocksipipeline/version.py"
+
+[tool.pytest.ini_options]
+testpaths = ["mocksipipeline", "docs"]
+doctest_plus = "enabled"
+text_file_format = "rst"
+addopts = "--doctest-rst"
+
+[tool.coverage.run]
+omit =[
+  "mocksipipeline/__init*",
+  "mocksipipeline/conftest.py",
+  "mocksipipeline/*setup_package*",
+  "mocksipipeline/tests/*",
+  "mocksipipeline/*/tests/*",
+  "mocksipipeline/extern/*",
+  "mocksipipeline/version*",
+  "*/mocksipipeline/__init*",
+  "*/mocksipipeline/conftest.py",
+  "*/mocksipipeline/*setup_package*",
+  "*/mocksipipeline/tests/*",
+  "*/mocksipipeline/*/tests/*",
+  "*/mocksipipeline/extern/*",
+  "*/mocksipipeline/version*",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+  # Have to re-enable the standard pragma
+  "pragma: no cover",
+  # Don't complain about packages we have installed
+  "except ImportError",
+  # Don't complain if tests don't hit assertions
+  "raise AssertionError",
+  "raise NotImplementedError",
+  # Don't complain about script hooks
+  "def main\\(.*\\):",
+  # Ignore branches that don't pertain to this version of Python
+  "pragma: py{ignore_python_version}",
+  # Don't complain about IPython completion helper
+  "def _ipython_key_completions_",
+]
 
 [tool.codespell]
 skip = "*.fts,*.fits,venv,*.pro,*.asdf"
 
 [tool.ruff]
-target-version = "py39"
+target-version = "py312"
 line-length = 110
 exclude=[
     ".git,",
@@ -19,25 +109,18 @@ exclude=[
     "mocksipipeline/version.py",
 ]
 show-fixes = true
-show-source = true
-
 select = [
        "E",
        "F",
        "W",
        "UP",
        "PT",
-       #"RET",
-       #"TID",
-
 ]
 extend-ignore = [
     # pycodestyle (E, W)
     "E501",  # LineTooLong                             # TODO! fix
-
     # pytest (PT)
     "PT001",  # Always use pytest.fixture()
-    "PT004",  # Fixtures which don't return anything should have leading _
     "PT007",  # Parametrize should be lists of tuples  # TODO! fix
     "PT011",  # Too broad exception assert             # TODO! fix
     "PT023",  # Always use () on pytest decorators
@@ -51,16 +134,12 @@ extend-ignore = [
 "docs/*.py" = ["INP001"]
 # Module level imports do not need to be at the top of a file here
 "docs/conf.py" = ["E402"]
-
 "__init__.py" = ["E402", "F401", "F403"]
 "test_*.py" = ["B011", "D", "E402", "PGH001", "S101"]
-
 # Snakemake variables show up as undefined names
 "pipeline/workflow/scripts/*.py" = ["F821"]
-
 # Need an import to register a Fido client, but import not explicitly used
 "pipeline/workflow/scripts/download_data.py" = ["F401"]
-
 
 [tool.ruff.pydocstyle]
 convention = "numpy"
