@@ -12,8 +12,9 @@ import parse
 import sunpy.map
 import xrtpy
 from astropy.nddata import StdDevUncertainty
-from sunkit_dem import GenericModel, Model
 from simple_reg_dem import simple_reg_dem
+from sunkit_dem import GenericModel, Model
+
 from mocksipipeline.spectral import (compute_temperature_response,
                                      get_spectral_tables)
 from mocksipipeline.util import write_cube_with_xarray

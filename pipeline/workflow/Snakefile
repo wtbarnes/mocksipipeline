@@ -44,7 +44,7 @@ rule calculate_dem:
         expand(root_dir / 'level_2' / 'xrt_{filter}.fits', filter=XRT_FILTERS),
         expand(root_dir / 'level_2' / 'aia_{filter}.fits', filter=AIA_FILTERS),
         expand(root_dir / 'uncertainty' / 'xrt_{filter}.fits', filter=XRT_FILTERS),
-        expand(root_dir / 'uncertainty' / 'aia_{filter}.fits', filter=AIA_FILTERS), 
+        expand(root_dir / 'uncertainty' / 'aia_{filter}.fits', filter=AIA_FILTERS),
     output:
         root_dir / 'dem_cube.nc'
     script:
