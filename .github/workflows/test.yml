@@ -16,11 +16,11 @@ jobs:
     with:
       toxdeps: tox-pypi-filter
       envs: |
-        - macos: py311
-        - windows: py311
-        - linux: py39
-        - linux: py310
-        - linux: py311
+        - macos: py314
+        - windows: py314
+        - linux: py312
+        - linux: py313
+        - linux: py314
       coverage: 'codecov'
     secrets:
       CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
@@ -30,7 +30,7 @@ jobs:
       toxdeps: tox-pypi-filter
       envs: |
         - linux: codestyle
-          python-version: '3.11'
+          python-version: '3.14'
   docs:
     needs: [test]
     uses: OpenAstronomy/github-actions-workflows/.github/workflows/tox.yml@v1
@@ -38,7 +38,7 @@ jobs:
       toxdeps: tox-pypi-filter
       envs: |
         - linux: build_docs
-          python-version: '3.11'
+          python-version: '3.14'
   publish:
     # Build wheels when pushing to any branch except main
     # publish.yml will only publish if tagged ^v.*
@@ -58,6 +58,6 @@ jobs:
       test_extras: 'dev'
       test_command: 'pytest -p no:warnings --doctest-rst --pyargs mocksipipeline'
       submodules: false
-      python-version: '3.11'
+      python-version: '3.13'
     secrets:
       pypi_token: ${{ secrets.PYPI_TOKEN }}
