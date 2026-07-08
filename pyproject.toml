@@ -15,7 +15,7 @@ authors = [
 license = {file="license/LICENSE.rst"}
 requires-python = ">=3.12"
 dependencies = [
-    "aiapy",
+    "aiapy>=0.12",
     "asdf-astropy",
     "astropy",
     "dask",
@@ -98,6 +98,7 @@ exclude_lines = [
 
 [tool.codespell]
 skip = "*.fts,*.fits,venv,*.pro,*.asdf"
+ignore-words-list = "nd"
 
 [tool.ruff]
 target-version = "py312"

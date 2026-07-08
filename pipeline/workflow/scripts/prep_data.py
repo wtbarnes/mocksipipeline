@@ -11,7 +11,7 @@ import astropy.wcs
 import numpy as np
 import sunpy.map
 from astropy.coordinates import SkyCoord
-from sunpy.coordinates import Helioprojective
+from sunpy.coordinates.screens import SphericalScreen
 
 import mocksipipeline.instrument.configuration
 
@@ -22,7 +22,7 @@ def apply_instrument_corrections(smap, pointing_table, correction_table):
         smap = aiapy.calibrate.update_pointing(smap, pointing_table=pointing_table)
         smap = aiapy.calibrate.correct_degradation(smap,
                                                    correction_table=correction_table,
-                                                   calibration_version=8,)
+                                                   calibration_version=10)
         smap /= smap.exposure_time
     elif 'XRT' in smap.instrument:
         # NOTE: the level 2 maps do not have a unit designation in their header but based on
@@ -70,7 +70,7 @@ def reproject_map(smap, new_header):
     # NOTE: Explicitly conserving flux here. The corresponding response functions used to
     # perform the DEM inversion are multiplied by the appropriate plate scale to account for
     # the fact that many pixels are being effectively summed together.
-    with Helioprojective.assume_spherical_screen(smap.observer_coordinate, only_off_disk=True):
+    with SphericalScreen(smap.observer_coordinate, only_off_disk=True):
         _smap = smap.reproject_to(astropy.wcs.WCS(new_header),
                                   algorithm='adaptive',
                                   conserve_flux=True,
@@ -89,7 +89,7 @@ if __name__ == '__main__':
     new_scale = instrument_design.optical_design.spatial_plate_scale
     # Replace negative values with zeros
     m = sunpy.map.Map(snakemake.input[0])
-    m = m._new_instance(np.where(m.data < 0, 0, m.data), m.meta)
+    m = m._new_instance(np.where(m.data<0, 0, m.data), m.meta)
     # Apply any needed corrections prior to reprojection
     pointing_table = astropy.table.QTable.read(snakemake.input[2])
     correction_table = astropy.table.QTable.read(snakemake.input[3])
