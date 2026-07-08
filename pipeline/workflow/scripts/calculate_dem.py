@@ -225,7 +225,7 @@ def compute_em(collection, kernels, temperature_bin_edges, kernel_temperatures, 
 
 if __name__ == '__main__':
     # Read in the maps and correction table
-    all_maps = sunpy.map.Map(snakemake.input[:-1])
+    all_maps = sunpy.map.Map(snakemake.input)
     # Build collection
     collection = build_map_collection(all_maps)
     # Construct temperature bins
